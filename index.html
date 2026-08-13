@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Hit-Rater 🎵</title>
+<style>
+  :root {
+    --bg: #0d0d14;
+    --card: #1a1a26;
+    --card2: #232332;
+    --text: #f2f2f7;
+    --muted: #8e8ea3;
+    --green: #1DB954;
+    --pink: #E91E63;
+    --purple: #8B5CF6;
+    --orange: #FF9800;
+    --radius: 20px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    overflow-x: hidden;
+    min-height: 100dvh;
+  }
+  /* Party-Hintergrund: animierte Farbblobs */
+  .blob {
+    position: fixed; border-radius: 50%; filter: blur(90px); opacity: .35;
+    z-index: 0; pointer-events: none; animation: float 18s ease-in-out infinite alternate;
+  }
+  .blob.b1 { width: 45vmax; height: 45vmax; background: var(--purple); top: -15vmax; left: -12vmax; }
+  .blob.b2 { width: 40vmax; height: 40vmax; background: var(--pink); bottom: -12vmax; right: -10vmax; animation-delay: -6s; }
+  .blob.b3 { width: 30vmax; height: 30vmax; background: var(--green); top: 40%; left: 55%; animation-delay: -12s; opacity: .22; }
+  @keyframes float {
+    from { transform: translate(0,0) scale(1); }
+    to   { transform: translate(6vmax, 4vmax) scale(1.15); }
+  }
+  .wrap {
+    position: relative; z-index: 1;
+    max-width: 480px; margin: 0 auto;
+    padding: 24px 18px calc(32px + env(safe-area-inset-bottom));
+    min-height: 100dvh; display: flex; flex-direction: column;
+  }
+  h1 {
+    font-size: 1.9rem; text-align: center; margin-bottom: 4px; letter-spacing: -.5px;
+    background: linear-gradient(90deg, var(--green), #7ee2a0, var(--pink), var(--purple));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .tagline { text-align: center; color: var(--muted); font-size: .9rem; margin-bottom: 24px; }
+  .card {
+    background: var(--card); border: 1px solid rgba(255,255,255,.06);
+    border-radius: var(--radius); padding: 20px; margin-bottom: 16px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.35);
+  }
+  .card h2 { font-size: 1.05rem; margin-bottom: 12px; }
+  label { display: block; font-size: .85rem; color: var(--muted); margin-bottom: 6px; }
+  input[type=text] {
+    width: 100%; padding: 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,.12);
+    background: var(--card2); color: var(--text); font-size: 1rem; outline: none;
+  }
+  input[type=text]:focus { border-color: var(--green); }
+  .btn {
+    display: block; width: 100%; padding: 16px; border: none; border-radius: 14px;
+    font-size: 1.05rem; font-weight: 700; cursor: pointer; margin-top: 12px;
+    color: #fff; transition: transform .08s, filter .15s; touch-action: manipulation;
+  }
+  .btn:active { transform: scale(.97); }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn-green  { background: linear-gradient(135deg, #1DB954, #15883d); }
+  .btn-pink   { background: linear-gradient(135deg, #E91E63, #ad1650); }
+  .btn-purple { background: linear-gradient(135deg, #8B5CF6, #6d3fd8); }
+  .btn-ghost  { background: var(--card2); color: var(--muted); font-weight: 600; }
+  .btn-sm { width: auto; padding: 8px 14px; font-size: .85rem; margin: 0; border-radius: 10px; }
+  .hidden { display: none !important; }
+  .muted { color: var(--muted); font-size: .85rem; line-height: 1.5; }
+  .mono {
+    font-family: ui-monospace, Menlo, monospace; font-size: .78rem; background: var(--card2);
+    padding: 8px 10px; border-radius: 8px; word-break: break-all; display: block; margin-top: 6px;
+    user-select: all; -webkit-user-select: all; cursor: pointer; border: 1px dashed rgba(255,255,255,.2);
+  }
+  .err {
+    background: rgba(233,30,99,.12); border: 1px solid rgba(233,30,99,.4);
+    color: #ff8ab0; padding: 12px 14px; border-radius: 12px; font-size: .88rem;
+    margin-top: 12px; line-height: 1.45;
+  }
+  /* Spinner */
+  .spinner {
+    width: 42px; height: 42px; border-radius: 50%; margin: 24px auto;
+    border: 4px solid rgba(255,255,255,.12); border-top-color: var(--green);
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  /* Pack-Liste */
+  .pack {
+    display: flex; align-items: center; gap: 12px; padding: 14px;
+    background: var(--card2); border-radius: 14px; margin-bottom: 10px;
+  }
+  .pack-info { flex: 1; min-width: 0; }
+  .pack-name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pack-meta { font-size: .78rem; color: var(--muted); margin-top: 2px; }
+  .pack button { flex-shrink: 0; }
+  .mylist {
+    display: flex; align-items: center; gap: 10px; padding: 11px 12px;
+    background: var(--card2); border-radius: 12px; margin-bottom: 8px; cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .mylist:active { border-color: var(--green); }
+  .mylist img { width: 42px; height: 42px; border-radius: 8px; object-fit: cover; background: #333; }
+  .mylist .n { font-size: .92rem; font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mylist .c { font-size: .78rem; color: var(--muted); }
+  /* Spiel */
+  .game-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .progress { font-size: .85rem; color: var(--muted); font-weight: 600; }
+  .stage {
+    position: relative; border-radius: var(--radius); overflow: hidden; margin-bottom: 16px;
+    min-height: 172px; background: var(--card);
+    border: 1px solid rgba(255,255,255,.06);
+  }
+  #player-box { min-height: 152px; }
+  #player-box iframe { display: block; border-radius: 0 !important; }
+  .cover-overlay {
+    position: absolute; inset: 0; z-index: 5;
+    background: linear-gradient(135deg, #232332 0%, #1a1a26 60%, #2a1a35 100%);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  }
+  .cover-overlay .q { font-size: 3rem; animation: pulse 2s ease-in-out infinite; }
+  .cover-overlay .t { color: var(--muted); font-size: .85rem; }
+  @keyframes pulse { 50% { transform: scale(1.15); } }
+  .blurred iframe { filter: blur(14px); }
+  .reveal-card { text-align: center; padding: 22px 20px; animation: pop .35s cubic-bezier(.2,1.6,.4,1); }
+  @keyframes pop { from { transform: scale(.85); opacity: 0; } }
+  .reveal-card img {
+    width: 130px; height: 130px; border-radius: 14px; object-fit: cover;
+    margin-bottom: 12px; box-shadow: 0 10px 30px rgba(0,0,0,.5);
+  }
+  .reveal-year {
+    font-size: 3.2rem; font-weight: 900; line-height: 1.1;
+    background: linear-gradient(90deg, var(--orange), var(--pink));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .reveal-title { font-size: 1.2rem; font-weight: 800; margin-top: 8px; }
+  .reveal-artist { color: var(--muted); margin-top: 3px; }
+  .controls { display: grid; gap: 10px; }
+  .icon-btn {
+    background: none; border: none; color: var(--muted); font-size: 1.3rem; cursor: pointer; padding: 6px;
+  }
+  /* Konfetti */
+  .confetti {
+    position: fixed; top: -12px; z-index: 50; pointer-events: none;
+    width: 10px; height: 16px; opacity: .95;
+    animation: fall linear forwards;
+  }
+  @keyframes fall {
+    to { transform: translateY(105vh) rotate(720deg); opacity: .7; }
+  }
+  footer { margin-top: auto; text-align: center; padding-top: 18px; }
+</style>
+</head>
+<body>
+<div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+<div class="wrap">
+  <h1>🎵 Hit-Rater</h1>
+  <p class="tagline">Hören · Jahr raten · Aufdecken</p>
+
+  <!-- SCHRITT 1: Client-ID einrichten -->
+  <div id="view-setup" class="card hidden">
+    <h2>⚙️ Einmalige Einrichtung</h2>
+    <p class="muted">Trage die <b>Client ID</b> deiner Spotify-Developer-App ein (siehe Anleitung). Sie ist kein Geheimnis und wird nur lokal auf diesem Gerät gespeichert.</p>
+    <div style="margin-top:14px">
+      <label>Spotify Client ID</label>
+      <input type="text" id="inp-client-id" placeholder="z. B. 5f2a1b3c4d..." autocomplete="off">
+    </div>
+    <p class="muted" style="margin-top:14px">Diese URL muss in deiner Spotify-App als <b>Redirect URI</b> eingetragen sein (antippen zum Markieren):</p>
+    <code class="mono" id="redirect-uri-display"></code>
+    <button class="btn btn-green" id="btn-save-client">Speichern &amp; weiter</button>
+    <div id="setup-err" class="err hidden"></div>
+  </div>
+
+  <!-- SCHRITT 2: Login -->
+  <div id="view-login" class="card hidden">
+    <h2>👋 Fast geschafft</h2>
+    <p class="muted">Melde dich mit deinem Spotify-Konto an, damit die App deine Playlists laden darf.</p>
+    <button class="btn btn-green" id="btn-login">Mit Spotify anmelden</button>
+    <button class="btn btn-ghost" id="btn-change-client">Client ID ändern</button>
+    <div id="login-err" class="err hidden"></div>
+  </div>
+
+  <!-- HOME: Packs verwalten -->
+  <div id="view-home" class="hidden">
+    <div class="card">
+      <h2>➕ Playlist laden</h2>
+      <label>Spotify-Playlist-Link (eigene oder kollaborative Playlist)</label>
+      <input type="text" id="inp-playlist" placeholder="https://open.spotify.com/playlist/…" autocomplete="off">
+      <button class="btn btn-purple" id="btn-load-playlist">Playlist laden</button>
+      <div id="load-spinner" class="spinner hidden"></div>
+      <div id="load-err" class="err hidden"></div>
+      <p class="muted" style="margin-top:12px">💡 Fremde Playlist? In Spotify alle Songs markieren → „Zu Playlist hinzufügen“ → eigene Kopie erstellen. Die funktioniert dann hier.</p>
+    </div>
+    <div class="card">
+      <h2 style="display:flex;justify-content:space-between;align-items:center">📚 Meine Spotify-Playlists
+        <button class="btn btn-ghost btn-sm" id="btn-refresh-mylists">Laden ↻</button>
+      </h2>
+      <div id="my-playlists"><p class="muted">Tippe auf „Laden“, um deine Playlists anzuzeigen.</p></div>
+    </div>
+    <div class="card" id="packs-card">
+      <h2>🎁 Deine Packs</h2>
+      <div id="pack-list"><p class="muted">Noch keine Packs geladen.</p></div>
+    </div>
+    <footer>
+      <button class="icon-btn" id="btn-logout" title="Abmelden">🚪 Abmelden</button>
+    </footer>
+  </div>
+
+  <!-- SPIEL -->
+  <div id="view-game" class="hidden">
+    <div class="game-top">
+      <button class="icon-btn" id="btn-back" title="Zurück">←</button>
+      <div class="progress" id="game-progress"></div>
+      <span style="width:34px"></span>
+    </div>
+    <div class="stage" id="stage">
+      <div id="player-box"></div>
+      <div class="cover-overlay" id="cover-overlay">
+        <div class="q">🤔</div>
+        <div class="t">Aus welchem Jahr ist dieser Song?</div>
+      </div>
+    </div>
+    <div id="reveal-box" class="card reveal-card hidden"></div>
+    <div class="controls">
+      <button class="btn btn-green" id="btn-play">▶️ Abspielen</button>
+      <button class="btn btn-pink" id="btn-reveal">🃏 Aufdecken</button>
+      <button class="btn btn-purple" id="btn-next">⏭️ Nächster Song</button>
+      <button class="btn btn-ghost" id="btn-show-player">Player anzeigen (falls kein Ton startet)</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ============ Konstanten & Storage ============ */
+const LS = {
+  clientId: 'hitrater_client_id',
+  tokens:   'hitrater_tokens',
+  verifier: 'hitrater_verifier',
+  packs:    'hitrater_packs',
+};
+const SCOPES = 'playlist-read-private playlist-read-collaborative';
+const REDIRECT_URI = location.origin + location.pathname;
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, fb = null) { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } },
+  set(k, v) { localStorage.setItem(k, JSON.stringify(v)); },
+  del(k) { localStorage.removeItem(k); },
+};
+
+/* ============ Views ============ */
+const VIEWS = ['view-setup', 'view-login', 'view-home', 'view-game'];
+function show(view) { VIEWS.forEach(v => $(v).classList.toggle('hidden', v !== view)); }
+function showErr(id, msg) { const el = $(id); el.textContent = msg; el.classList.remove('hidden'); }
+function hideErr(id) { $(id).classList.add('hidden'); }
+
+/* ============ PKCE Auth ============ */
+function b64url(bytes) {
+  return btoa(String.fromCharCode(...new Uint8Array(bytes)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+async function startLogin() {
+  const clientId = store.get(LS.clientId);
+  const verifierBytes = crypto.getRandomValues(new Uint8Array(64));
+  const verifier = b64url(verifierBytes);
+  store.set(LS.verifier, verifier);
+  const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+  const p = new URLSearchParams({
+    client_id: clientId, response_type: 'code', redirect_uri: REDIRECT_URI,
+    scope: SCOPES, code_challenge_method: 'S256', code_challenge: challenge,
+  });
+  location.href = 'https://accounts.spotify.com/authorize?' + p;
+}
+async function tokenRequest(body) {
+  const res = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(body),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error_description || data.error || ('HTTP ' + res.status));
+  store.set(LS.tokens, {
+    access_token: data.access_token,
+    refresh_token: data.refresh_token || (store.get(LS.tokens) || {}).refresh_token,
+    expires_at: Date.now() + (data.expires_in - 60) * 1000,
+  });
+  return data.access_token;
+}
+async function handleCallback() {
+  const params = new URLSearchParams(location.search);
+  const code = params.get('code');
+  const authErr = params.get('error');
+  if (!code && !authErr) return null;
+  history.replaceState(null, '', REDIRECT_URI); // URL säubern
+  if (authErr) throw new Error('Spotify-Anmeldung abgelehnt: ' + authErr);
+  const verifier = store.get(LS.verifier);
+  if (!verifier) throw new Error('Login-Sitzung abgelaufen, bitte erneut anmelden.');
+  await tokenRequest({
+    grant_type: 'authorization_code', code, redirect_uri: REDIRECT_URI,
+    client_id: store.get(LS.clientId), code_verifier: verifier,
+  });
+  store.del(LS.verifier);
+  return true;
+}
+async function getToken() {
+  const t = store.get(LS.tokens);
+  if (!t) return null;
+  if (Date.now() < t.expires_at) return t.access_token;
+  if (!t.refresh_token) return null;
+  try {
+    return await tokenRequest({
+      grant_type: 'refresh_token', refresh_token: t.refresh_token,
+      client_id: store.get(LS.clientId),
+    });
+  } catch { store.del(LS.tokens); return null; }
+}
+function logout() { store.del(LS.tokens); route(); }
+
+/* ============ Spotify API ============ */
+async function api(path) {
+  const token = await getToken();
+  if (!token) { route(); throw new Error('Nicht angemeldet.'); }
+  const res = await fetch('https://api.spotify.com/v1' + path, {
+    headers: { Authorization: 'Bearer ' + token },
+  });
+  if (res.status === 401) { store.del(LS.tokens); route(); throw new Error('Sitzung abgelaufen – bitte neu anmelden.'); }
+  if (res.status === 429) throw new Error('Spotify-Limit erreicht – bitte kurz warten und erneut versuchen.');
+  if (res.status === 404) throw new Error('Playlist nicht gefunden oder kein Zugriff. Gehört sie wirklich deinem Konto? (Fremde Playlists: erst eigene Kopie erstellen.)');
+  if (!res.ok) throw new Error('Spotify-Fehler (HTTP ' + res.status + ')');
+  return res.json();
+}
+function parsePlaylistId(input) {
+  input = input.trim();
+  let m = input.match(/playlist[/:]([A-Za-z0-9]+)/);
+  if (m) return m[1];
+  if (/^[A-Za-z0-9]{15,}$/.test(input)) return input;
+  return null;
+}
+async function fetchPlaylistTracks(playlistId) {
+  const tracks = [];
+  let offset = 0, total = Infinity;
+  while (offset < total) {
+    const data = await api(`/playlists/${playlistId}/items?limit=50&offset=${offset}`);
+    total = data.total ?? 0;
+    const entries = data.items || [];
+    if (!entries.length) break;
+    for (const entry of entries) {
+      const t = entry.item ?? entry.track; // neues bzw. altes Feldschema
+      if (!t || t.type !== 'track' || !t.id) continue; // Podcasts/lokale Dateien überspringen
+      const year = (t.album && t.album.release_date) ? t.album.release_date.slice(0, 4) : '?';
+      const cover = t.album?.images?.length ? t.album.images[Math.min(1, t.album.images.length - 1)].url : '';
+      tracks.push({ id: t.id, title: t.name, artist: (t.artists || []).map(a => a.name).join(', '), year, cover });
+    }
+    offset += entries.length;
+  }
+  return tracks;
+}
+
+/* ============ Packs ============ */
+function getPacks() { return store.get(LS.packs, []); }
+function savePacks(p) { store.set(LS.packs, p); }
+function renderPacks() {
+  const packs = getPacks();
+  const el = $('pack-list');
+  if (!packs.length) { el.innerHTML = '<p class="muted">Noch keine Packs geladen.</p>'; return; }
+  el.innerHTML = '';
+  packs.forEach((pack, i) => {
+    const div = document.createElement('div');
+    div.className = 'pack';
+    const remaining = pack.tracks.length - pack.played.length;
+    div.innerHTML = `
+      <div class="pack-info">
+        <div class="pack-name"></div>
+        <div class="pack-meta">${pack.tracks.length} Songs · ${remaining > 0 ? remaining + ' übrig' : 'alle gespielt 🎉'}</div>
+      </div>
+      <button class="btn btn-green btn-sm">Spielen</button>
+      <button class="btn btn-ghost btn-sm">🗑</button>`;
+    div.querySelector('.pack-name').textContent = pack.name;
+    const [playBtn, delBtn] = div.querySelectorAll('button');
+    playBtn.onclick = () => startGame(i);
+    delBtn.onclick = () => { packs.splice(i, 1); savePacks(packs); renderPacks(); };
+    el.appendChild(div);
+  });
+}
+async function loadPlaylist(idOrUrl, knownName) {
+  const id = parsePlaylistId(idOrUrl);
+  if (!id) { showErr('load-err', 'Das sieht nicht nach einem Spotify-Playlist-Link aus.'); return; }
+  hideErr('load-err');
+  $('load-spinner').classList.remove('hidden');
+  $('btn-load-playlist').disabled = true;
+  try {
+    let name = knownName;
+    if (!name) {
+      try { const meta = await api('/playlists/' + id); name = meta.name; } catch { name = 'Playlist'; }
+    }
+    const tracks = await fetchPlaylistTracks(id);
+    if (!tracks.length) throw new Error('Keine Songs gefunden. Bei fremden Playlists liefert Spotify keine Songliste mehr – erstelle eine eigene Kopie in deinem Konto.');
+    const packs = getPacks();
+    const existing = packs.findIndex(p => p.id === id);
+    const pack = { id, name, tracks, played: [] };
+    if (existing >= 0) packs[existing] = pack; else packs.push(pack);
+    savePacks(packs);
+    renderPacks();
+    $('inp-playlist').value = '';
+  } catch (e) {
+    showErr('load-err', e.message);
+  } finally {
+    $('load-spinner').classList.add('hidden');
+    $('btn-load-playlist').disabled = false;
+  }
+}
+async function loadMyPlaylists() {
+  const el = $('my-playlists');
+  el.innerHTML = '<div class="spinner"></div>';
+  try {
+    let items = [], url = '/me/playlists?limit=50', guard = 0;
+    while (url && guard++ < 10) {
+      const data = await api(url);
+      items = items.concat(data.items || []);
+      url = data.next ? data.next.replace('https://api.spotify.com/v1', '') : null;
+    }
+    if (!items.length) { el.innerHTML = '<p class="muted">Keine Playlists gefunden.</p>'; return; }
+    el.innerHTML = '';
+    items.forEach(pl => {
+      if (!pl) return;
+      const div = document.createElement('div');
+      div.className = 'mylist';
+      const img = pl.images?.length ? `<img src="${pl.images[pl.images.length - 1].url}" alt="">` : '<img alt="">';
+      const count = pl.items?.total ?? pl.tracks?.total ?? '?';
+      div.innerHTML = `${img}<span class="n"></span><span class="c">${count} Songs</span>`;
+      div.querySelector('.n').textContent = pl.name;
+      div.onclick = () => loadPlaylist(pl.id, pl.name);
+      el.appendChild(div);
+    });
+  } catch (e) {
+    el.innerHTML = '<p class="err">' + e.message + '</p>';
+  }
+}
+
+/* ============ Spiel ============ */
+let game = { packIndex: -1, current: null, revealed: false };
+let embedController = null;
+let iframeAPI = null;
+window.onSpotifyIframeApiReady = (api) => { iframeAPI = api; };
+
+function ensureController(trackId, cb) {
+  const uri = 'spotify:track:' + trackId;
+  if (embedController) { embedController.loadUri(uri); cb && cb(); return; }
+  if (!iframeAPI) { setTimeout(() => ensureController(trackId, cb), 300); return; }
+  const box = $('player-box');
+  box.innerHTML = '<div id="embed-target"></div>';
+  iframeAPI.createController($('embed-target'), { uri, width: '100%', height: 152 }, (ctrl) => {
+    embedController = ctrl;
+    ctrl.addListener('playback_update', (e) => {
+      $('btn-play').textContent = e.data.isPaused ? '▶️ Abspielen' : '⏸️ Pause';
+    });
+    cb && cb();
+  });
+}
+function pickNextTrack(pack) {
+  let pool = pack.tracks.filter(t => !pack.played.includes(t.id));
+  if (!pool.length) { pack.played = []; pool = pack.tracks; } // alle durch → neu mischen
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+function startGame(packIndex) {
+  game.packIndex = packIndex;
+  show('view-game');
+  nextRound();
+}
+function nextRound() {
+  const packs = getPacks();
+  const pack = packs[game.packIndex];
+  if (!pack) { show('view-home'); return; }
+  const track = pickNextTrack(pack);
+  game.current = track;
+  game.revealed = false;
+  pack.played.push(track.id);
+  savePacks(packs);
+  // UI zurücksetzen
+  $('reveal-box').classList.add('hidden');
+  $('cover-overlay').classList.remove('hidden');
+  $('stage').classList.remove('blurred');
+  $('btn-reveal').disabled = false;
+  $('btn-play').textContent = '▶️ Abspielen';
+  $('game-progress').textContent = `Song ${pack.played.length} / ${pack.tracks.length} · ${pack.name}`;
+  ensureController(track.id);
+}
+function togglePlayPause() {
+  if (!embedController) return;
+  embedController.togglePlay();
+}
+function reveal() {
+  const t = game.current;
+  if (!t || game.revealed) return;
+  game.revealed = true;
+  const box = $('reveal-box');
+  box.innerHTML = `
+    ${t.cover ? `<img src="${t.cover}" alt="Cover">` : ''}
+    <div class="reveal-year">${t.year}</div>
+    <div class="reveal-title"></div>
+    <div class="reveal-artist"></div>`;
+  box.querySelector('.reveal-title').textContent = t.title;
+  box.querySelector('.reveal-artist').textContent = t.artist;
+  box.classList.remove('hidden');
+  $('cover-overlay').classList.add('hidden');
+  $('stage').classList.remove('blurred');
+  $('btn-reveal').disabled = true;
+  confetti();
+}
+function confetti() {
+  const colors = ['#1DB954', '#E91E63', '#8B5CF6', '#FF9800', '#29B6F6'];
+  for (let i = 0; i < 36; i++) {
+    const c = document.createElement('div');
+    c.className = 'confetti';
+    c.style.left = Math.random() * 100 + 'vw';
+    c.style.background = colors[i % colors.length];
+    c.style.animationDuration = (1.4 + Math.random() * 1.6) + 's';
+    c.style.animationDelay = (Math.random() * 0.4) + 's';
+    c.style.transform = `rotate(${Math.random() * 360}deg)`;
+    document.body.appendChild(c);
+    setTimeout(() => c.remove(), 3800);
+  }
+}
+function showPlayerFallback() {
+  // Falls togglePlay auf manchen Mobilbrowsern blockiert wird:
+  // Overlay weg, Player unscharf zeigen, damit man direkt im Embed auf Play tippen kann.
+  $('cover-overlay').classList.add('hidden');
+  if (!game.revealed) $('stage').classList.add('blurred');
+}
+
+/* ============ Events & Routing ============ */
+$('btn-save-client').onclick = () => {
+  const v = $('inp-client-id').value.trim();
+  if (!/^[a-f0-9]{16,}$/i.test(v)) { showErr('setup-err', 'Das sieht nicht nach einer gültigen Client ID aus (Hex-Zeichenkette aus dem Spotify Dashboard).'); return; }
+  store.set(LS.clientId, v);
+  route();
+};
+$('btn-login').onclick = () => startLogin().catch(e => showErr('login-err', e.message));
+$('btn-change-client').onclick = () => { store.del(LS.clientId); route(); };
+$('btn-logout').onclick = logout;
+$('btn-load-playlist').onclick = () => loadPlaylist($('inp-playlist').value);
+$('btn-refresh-mylists').onclick = loadMyPlaylists;
+$('btn-play').onclick = togglePlayPause;
+$('btn-reveal').onclick = reveal;
+$('btn-next').onclick = nextRound;
+$('btn-show-player').onclick = showPlayerFallback;
+$('btn-back').onclick = () => { if (embedController) embedController.pause(); show('view-home'); renderPacks(); };
+
+async function route() {
+  $('redirect-uri-display').textContent = REDIRECT_URI;
+  if (!store.get(LS.clientId)) { show('view-setup'); return; }
+  const token = await getToken();
+  if (!token) { show('view-login'); return; }
+  show('view-home');
+  renderPacks();
+}
+(async function init() {
+  try {
+    await handleCallback();
+  } catch (e) {
+    show('view-login');
+    showErr('login-err', e.message);
+    $('redirect-uri-display').textContent = REDIRECT_URI;
+    return;
+  }
+  route();
+})();
+</script>
+<script src="https://open.spotify.com/embed/iframe-api/v1" async></script>
+</body>
+</html>
