@@ -123,7 +123,23 @@
   .mylist .n { font-size: .92rem; font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .mylist .c { font-size: .78rem; color: var(--muted); }
   /* Spiel */
-  .game-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .game-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .chips { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-bottom: 14px; }
+  .chip {
+    border: 1px solid rgba(255,255,255,.15); background: var(--card2); color: var(--muted);
+    border-radius: 999px; padding: 8px 14px; font-size: .82rem; font-weight: 700;
+    cursor: pointer; transition: all .15s; touch-action: manipulation;
+  }
+  .chip.on { background: rgba(29,185,84,.18); border-color: var(--green); color: #7ee2a0; }
+  .timer-display {
+    text-align: center; font-size: 1.4rem; font-weight: 900; margin-bottom: 10px;
+    font-variant-numeric: tabular-nums; color: var(--orange);
+  }
+  .attention { animation: glow 0.7s ease-in-out infinite alternate; }
+  @keyframes glow {
+    from { box-shadow: 0 0 0 rgba(233,30,99,0); }
+    to   { box-shadow: 0 0 24px rgba(233,30,99,.9); transform: scale(1.02); }
+  }
   .progress { font-size: .85rem; color: var(--muted); font-weight: 600; }
   .stage {
     position: relative; border-radius: var(--radius); overflow: hidden; margin-bottom: 16px;
@@ -234,6 +250,12 @@ https://open.spotify.com/playlist/…" autocomplete="off"></textarea>
       <div class="progress" id="game-progress"></div>
       <span style="width:34px"></span>
     </div>
+    <div class="chips">
+      <button class="chip" id="chip-mode">🔀 Zufall</button>
+      <button class="chip" id="chip-auto">🔁 Auto-Weiter</button>
+      <button class="chip" id="chip-timer">⏱ Timer: Aus</button>
+    </div>
+    <div class="timer-display hidden" id="timer-display"></div>
     <div class="stage" id="stage">
       <div id="player-box"></div>
       <div class="cover-overlay" id="cover-overlay">
@@ -259,6 +281,7 @@ const LS = {
   tokens:   'hitrater_tokens',
   verifier: 'hitrater_verifier',
   packs:    'hitrater_packs',
+  settings: 'hitrater_settings',
 };
 const SCOPES = 'playlist-read-private playlist-read-collaborative';
 const REDIRECT_URI = location.origin + location.pathname;
@@ -495,10 +518,59 @@ async function loadMyPlaylists() {
 }
 
 /* ============ Spiel ============ */
-let game = { packIndex: -1, current: null, revealed: false };
+let game = { packIndex: -1, current: null, revealed: false, trackEnded: false };
 let embedController = null;
 let iframeAPI = null;
 window.onSpotifyIframeApiReady = (api) => { iframeAPI = api; };
+
+/* --- Einstellungen (Modus / Auto-Weiter / Timer) --- */
+const TIMER_STEPS = [0, 30, 45, 60];
+let settings = Object.assign({ mode: 'random', auto: false, timer: 0 }, store.get(LS.settings, {}));
+function saveSettings() { store.set(LS.settings, settings); }
+function renderChips() {
+  $('chip-mode').textContent = settings.mode === 'random' ? '🔀 Zufall' : '➡️ Reihenfolge';
+  $('chip-mode').classList.add('on');
+  $('chip-auto').classList.toggle('on', settings.auto);
+  $('chip-timer').textContent = settings.timer ? `⏱ Timer: ${settings.timer}s` : '⏱ Timer: Aus';
+  $('chip-timer').classList.toggle('on', settings.timer > 0);
+}
+
+/* --- Wake Lock: Display anlassen, solange gespielt wird --- */
+let wakeLock = null, inGame = false;
+async function acquireWakeLock() {
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { /* nicht unterstützt – egal */ }
+}
+function releaseWakeLock() {
+  try { wakeLock?.release(); } catch {}
+  wakeLock = null;
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && inGame) acquireWakeLock();
+});
+
+/* --- Ratezeit-Countdown --- */
+let timerInterval = null;
+function stopRoundTimer() {
+  clearInterval(timerInterval); timerInterval = null;
+  $('timer-display').classList.add('hidden');
+  $('btn-reveal').classList.remove('attention');
+}
+function startRoundTimer() {
+  stopRoundTimer();
+  if (!settings.timer) return;
+  let remaining = settings.timer;
+  const disp = $('timer-display');
+  disp.textContent = '⏱ ' + remaining + 's';
+  disp.classList.remove('hidden');
+  timerInterval = setInterval(() => {
+    remaining--;
+    if (remaining > 0) { disp.textContent = '⏱ ' + remaining + 's'; return; }
+    disp.textContent = '⏰ Zeit um!';
+    clearInterval(timerInterval); timerInterval = null;
+    $('btn-reveal').classList.add('attention');
+    try { navigator.vibrate?.([200, 100, 200]); } catch {}
+  }, 1000);
+}
 
 function ensureController(trackId, cb) {
   const uri = 'spotify:track:' + trackId;
@@ -510,27 +582,38 @@ function ensureController(trackId, cb) {
     embedController = ctrl;
     ctrl.addListener('playback_update', (e) => {
       $('btn-play').textContent = e.data.isPaused ? '▶️ Abspielen' : '⏸️ Pause';
+      // Songende erkennen (Einheiten-unabhängig über das Verhältnis Position/Dauer)
+      const { position, duration, isBuffering } = e.data;
+      if (!isBuffering && duration > 0 && position > 0 && position / duration >= 0.995 && !game.trackEnded) {
+        game.trackEnded = true;
+        if (settings.auto && inGame) setTimeout(() => nextRound(true), 800);
+      }
     });
     cb && cb();
   });
 }
 function pickNextTrack(pack) {
   let pool = pack.tracks.filter(t => !pack.played.includes(t.id));
-  if (!pool.length) { pack.played = []; pool = pack.tracks; } // alle durch → neu mischen
+  if (!pool.length) { pack.played = []; pool = pack.tracks; } // alle durch → von vorn
+  if (settings.mode === 'order') return pool[0]; // Playlist-Reihenfolge
   return pool[Math.floor(Math.random() * pool.length)];
 }
 function startGame(packIndex) {
   game.packIndex = packIndex;
+  inGame = true;
+  acquireWakeLock();
   show('view-game');
+  renderChips();
   nextRound();
 }
-function nextRound() {
+function nextRound(autoplay = false) {
   const packs = getPacks();
   const pack = packs[game.packIndex];
   if (!pack) { show('view-home'); return; }
   const track = pickNextTrack(pack);
   game.current = track;
   game.revealed = false;
+  game.trackEnded = false;
   pack.played.push(track.id);
   savePacks(packs);
   // UI zurücksetzen
@@ -538,9 +621,13 @@ function nextRound() {
   $('cover-overlay').classList.remove('hidden');
   $('stage').classList.remove('blurred');
   $('btn-reveal').disabled = false;
+  $('btn-reveal').classList.remove('attention');
   $('btn-play').textContent = '▶️ Abspielen';
   $('game-progress').textContent = `Song ${pack.played.length} / ${pack.tracks.length} · ${pack.name}`;
-  ensureController(track.id);
+  ensureController(track.id, () => {
+    if (autoplay && embedController) setTimeout(() => embedController.play(), 400);
+  });
+  startRoundTimer();
 }
 function togglePlayPause() {
   if (!embedController) return;
@@ -562,6 +649,7 @@ function reveal() {
   $('cover-overlay').classList.add('hidden');
   $('stage').classList.remove('blurred');
   $('btn-reveal').disabled = true;
+  stopRoundTimer();
   confetti();
 }
 function confetti() {
@@ -601,7 +689,28 @@ $('btn-play').onclick = togglePlayPause;
 $('btn-reveal').onclick = reveal;
 $('btn-next').onclick = nextRound;
 $('btn-show-player').onclick = showPlayerFallback;
-$('btn-back').onclick = () => { if (embedController) embedController.pause(); show('view-home'); renderPacks(); };
+$('btn-back').onclick = () => {
+  if (embedController) embedController.pause();
+  inGame = false;
+  releaseWakeLock();
+  stopRoundTimer();
+  show('view-home');
+  renderPacks();
+};
+$('chip-mode').onclick = () => {
+  settings.mode = settings.mode === 'random' ? 'order' : 'random';
+  saveSettings(); renderChips();
+};
+$('chip-auto').onclick = () => {
+  settings.auto = !settings.auto;
+  saveSettings(); renderChips();
+};
+$('chip-timer').onclick = () => {
+  const i = TIMER_STEPS.indexOf(settings.timer);
+  settings.timer = TIMER_STEPS[(i + 1) % TIMER_STEPS.length];
+  saveSettings(); renderChips();
+  if (settings.timer && !game.revealed && inGame) startRoundTimer(); else stopRoundTimer();
+};
 
 async function route() {
   $('redirect-uri-display').textContent = REDIRECT_URI;
