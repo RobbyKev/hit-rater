@@ -62,6 +62,12 @@
     background: var(--card2); color: var(--text); font-size: 1rem; outline: none;
   }
   input[type=text]:focus { border-color: var(--green); }
+  textarea {
+    width: 100%; padding: 14px; border-radius: 12px; border: 1px solid rgba(255,255,255,.12);
+    background: var(--card2); color: var(--text); font-size: 1rem; outline: none;
+    font-family: inherit; resize: vertical; line-height: 1.4;
+  }
+  textarea:focus { border-color: var(--green); }
   .btn {
     display: block; width: 100%; padding: 16px; border: none; border-radius: 14px;
     font-size: 1.05rem; font-weight: 700; cursor: pointer; margin-top: 12px;
@@ -84,7 +90,7 @@
   .err {
     background: rgba(233,30,99,.12); border: 1px solid rgba(233,30,99,.4);
     color: #ff8ab0; padding: 12px 14px; border-radius: 12px; font-size: .88rem;
-    margin-top: 12px; line-height: 1.45;
+    margin-top: 12px; line-height: 1.45; white-space: pre-line;
   }
   /* Spinner */
   .spinner {
@@ -95,13 +101,18 @@
   @keyframes spin { to { transform: rotate(360deg); } }
   /* Pack-Liste */
   .pack {
-    display: flex; align-items: center; gap: 12px; padding: 14px;
+    display: flex; align-items: flex-start; gap: 12px; padding: 14px;
     background: var(--card2); border-radius: 14px; margin-bottom: 10px;
   }
+  .pack-cover {
+    width: 56px; height: 56px; border-radius: 10px; object-fit: cover;
+    background: #333; flex-shrink: 0;
+  }
   .pack-info { flex: 1; min-width: 0; }
-  .pack-name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .pack-meta { font-size: .78rem; color: var(--muted); margin-top: 2px; }
-  .pack button { flex-shrink: 0; }
+  .pack-name { font-weight: 700; white-space: normal; overflow-wrap: break-word; line-height: 1.3; }
+  .pack-meta { font-size: .78rem; color: var(--muted); margin-top: 4px; }
+  .pack-actions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+  .pack-actions button { width: auto; }
   .mylist {
     display: flex; align-items: center; gap: 10px; padding: 11px 12px;
     background: var(--card2); border-radius: 12px; margin-bottom: 8px; cursor: pointer;
@@ -191,11 +202,13 @@
   <!-- HOME: Packs verwalten -->
   <div id="view-home" class="hidden">
     <div class="card">
-      <h2>➕ Playlist laden</h2>
-      <label>Spotify-Playlist-Link (eigene oder kollaborative Playlist)</label>
-      <input type="text" id="inp-playlist" placeholder="https://open.spotify.com/playlist/…" autocomplete="off">
-      <button class="btn btn-purple" id="btn-load-playlist">Playlist laden</button>
+      <h2>➕ Playlist(s) laden</h2>
+      <label>Spotify-Playlist-Link(s) – für mehrere: einen Link pro Zeile</label>
+      <textarea id="inp-playlist" rows="3" placeholder="https://open.spotify.com/playlist/…
+https://open.spotify.com/playlist/…" autocomplete="off"></textarea>
+      <button class="btn btn-purple" id="btn-load-playlist">Playlist(s) laden</button>
       <div id="load-spinner" class="spinner hidden"></div>
+      <div id="load-progress" class="muted hidden" style="text-align:center;margin-top:8px"></div>
       <div id="load-err" class="err hidden"></div>
       <p class="muted" style="margin-top:12px">💡 Fremde Playlist? In Spotify alle Songs markieren → „Zu Playlist hinzufügen“ → eigene Kopie erstellen. Die funktioniert dann hier.</p>
     </div>
@@ -376,45 +389,81 @@ function renderPacks() {
     const div = document.createElement('div');
     div.className = 'pack';
     const remaining = pack.tracks.length - pack.played.length;
+    const coverImg = pack.cover
+      ? `<img class="pack-cover" src="${pack.cover}" alt="">`
+      : '<div class="pack-cover"></div>';
     div.innerHTML = `
+      ${coverImg}
       <div class="pack-info">
         <div class="pack-name"></div>
         <div class="pack-meta">${pack.tracks.length} Songs · ${remaining > 0 ? remaining + ' übrig' : 'alle gespielt 🎉'}</div>
       </div>
-      <button class="btn btn-green btn-sm">Spielen</button>
-      <button class="btn btn-ghost btn-sm">🗑</button>`;
+      <div class="pack-actions">
+        <button class="btn btn-green btn-sm">Spielen</button>
+        <button class="btn btn-ghost btn-sm">🗑</button>
+      </div>`;
     div.querySelector('.pack-name').textContent = pack.name;
-    const [playBtn, delBtn] = div.querySelectorAll('button');
+    const [playBtn, delBtn] = div.querySelectorAll('.pack-actions button');
     playBtn.onclick = () => startGame(i);
     delBtn.onclick = () => { packs.splice(i, 1); savePacks(packs); renderPacks(); };
     el.appendChild(div);
   });
 }
-async function loadPlaylist(idOrUrl, knownName) {
-  const id = parsePlaylistId(idOrUrl);
-  if (!id) { showErr('load-err', 'Das sieht nicht nach einem Spotify-Playlist-Link aus.'); return; }
+// Lädt eine einzelne Playlist per ID und legt/aktualisiert das Pack. Behält den
+// Spielfortschritt (played), falls die Playlist schon als Pack existiert.
+async function addPlaylistById(id) {
+  let meta;
+  try {
+    meta = await api('/playlists/' + id);
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+  let tracks;
+  try {
+    tracks = await fetchPlaylistTracks(id);
+  } catch (e) {
+    return { ok: false, error: `„${meta.name}“: ${e.message}` };
+  }
+  if (!tracks.length) {
+    return { ok: false, error: `„${meta.name}“: keine Songs gefunden. Bei fremden Playlists liefert Spotify keine Songliste mehr – erstelle eine eigene Kopie in deinem Konto.` };
+  }
+  const cover = meta.images?.length ? meta.images[0].url : (tracks.find(t => t.cover)?.cover || '');
+  const packs = getPacks();
+  const idx = packs.findIndex(p => p.id === id);
+  const trackIds = new Set(tracks.map(t => t.id));
+  const prevPlayed = idx >= 0 ? packs[idx].played.filter(tid => trackIds.has(tid)) : [];
+  const pack = { id, name: meta.name, cover, tracks, played: prevPlayed };
+  if (idx >= 0) packs[idx] = pack; else packs.push(pack);
+  savePacks(packs);
+  return { ok: true, name: meta.name };
+}
+// Verarbeitet ein oder mehrere Playlist-Links (einer pro Zeile).
+async function loadPlaylists(raw) {
+  const lines = raw.split('\n').map(s => s.trim()).filter(Boolean);
+  if (!lines.length) { showErr('load-err', 'Bitte mindestens einen Playlist-Link einfügen.'); return; }
   hideErr('load-err');
   $('load-spinner').classList.remove('hidden');
   $('btn-load-playlist').disabled = true;
-  try {
-    let name = knownName;
-    if (!name) {
-      try { const meta = await api('/playlists/' + id); name = meta.name; } catch { name = 'Playlist'; }
-    }
-    const tracks = await fetchPlaylistTracks(id);
-    if (!tracks.length) throw new Error('Keine Songs gefunden. Bei fremden Playlists liefert Spotify keine Songliste mehr – erstelle eine eigene Kopie in deinem Konto.');
-    const packs = getPacks();
-    const existing = packs.findIndex(p => p.id === id);
-    const pack = { id, name, tracks, played: [] };
-    if (existing >= 0) packs[existing] = pack; else packs.push(pack);
-    savePacks(packs);
-    renderPacks();
+  const progressEl = $('load-progress');
+  progressEl.classList.remove('hidden');
+  const errors = [];
+  let okCount = 0;
+  for (let i = 0; i < lines.length; i++) {
+    progressEl.textContent = lines.length > 1 ? `Lade Playlist ${i + 1} von ${lines.length} …` : 'Lade Playlist …';
+    const id = parsePlaylistId(lines[i]);
+    if (!id) { errors.push(`„${lines[i]}“ ist kein gültiger Spotify-Playlist-Link.`); continue; }
+    const res = await addPlaylistById(id);
+    if (res.ok) okCount++; else errors.push(res.error || `Fehler bei ${lines[i]}`);
+  }
+  renderPacks();
+  $('load-spinner').classList.add('hidden');
+  progressEl.classList.add('hidden');
+  $('btn-load-playlist').disabled = false;
+  if (errors.length) {
+    const prefix = okCount ? `${okCount} von ${lines.length} Playlist(s) geladen.\n` : '';
+    showErr('load-err', prefix + errors.join('\n'));
+  } else {
     $('inp-playlist').value = '';
-  } catch (e) {
-    showErr('load-err', e.message);
-  } finally {
-    $('load-spinner').classList.add('hidden');
-    $('btn-load-playlist').disabled = false;
   }
 }
 async function loadMyPlaylists() {
@@ -437,7 +486,7 @@ async function loadMyPlaylists() {
       const count = pl.items?.total ?? pl.tracks?.total ?? '?';
       div.innerHTML = `${img}<span class="n"></span><span class="c">${count} Songs</span>`;
       div.querySelector('.n').textContent = pl.name;
-      div.onclick = () => loadPlaylist(pl.id, pl.name);
+      div.onclick = () => loadPlaylists('https://open.spotify.com/playlist/' + pl.id);
       el.appendChild(div);
     });
   } catch (e) {
@@ -546,7 +595,7 @@ $('btn-save-client').onclick = () => {
 $('btn-login').onclick = () => startLogin().catch(e => showErr('login-err', e.message));
 $('btn-change-client').onclick = () => { store.del(LS.clientId); route(); };
 $('btn-logout').onclick = logout;
-$('btn-load-playlist').onclick = () => loadPlaylist($('inp-playlist').value);
+$('btn-load-playlist').onclick = () => loadPlaylists($('inp-playlist').value);
 $('btn-refresh-mylists').onclick = loadMyPlaylists;
 $('btn-play').onclick = togglePlayPause;
 $('btn-reveal').onclick = reveal;
