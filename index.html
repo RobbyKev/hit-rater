@@ -157,6 +157,44 @@ code.uri {
 .empty-state { text-align: center; padding: 36px 20px; }
 .empty-state .ico { font-size: 2.8rem; margin-bottom: 12px; }
 
+/* ===== Modus-Kacheln ===== */
+.mode-card {
+  display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;
+  background: var(--surface-card); border: 1px solid rgba(139,92,246,.35);
+  border-radius: 16px; padding: 16px; margin-bottom: 12px; cursor: pointer;
+  transition: all .2s ease-in-out; color: var(--text); font-family: var(--font-body);
+}
+.mode-card:active { transform: scale(.98); border-color: var(--accent-purple); box-shadow: 0 0 24px rgba(139,92,246,.35); }
+.mode-card .ico {
+  width: 52px; height: 52px; border-radius: 14px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-size: 1.6rem;
+  background: linear-gradient(145deg, var(--accent-purple), var(--primary-glow));
+}
+.mode-card.alt .ico { background: linear-gradient(145deg, var(--success-green), #0891b2); }
+.mode-card .t { font-family: var(--font-heading); font-weight: 700; font-size: 1rem; }
+.mode-card .d { font-size: .78rem; color: var(--text-muted); margin-top: 3px; line-height: 1.45; }
+
+/* ===== Höher/Tiefer ===== */
+.ref-box {
+  background: var(--surface-card); border: 1px solid rgba(255,255,255,.08);
+  border-radius: 14px; padding: 12px 16px; text-align: center; margin-bottom: 10px;
+}
+.ref-box .lbl { font-size: .72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+.ref-box .val { font-family: var(--font-mono); font-weight: 700; font-size: 1.6rem; color: var(--amber); margin-top: 2px; }
+.ref-box .sng { font-size: .76rem; color: var(--text-muted); margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.streak-pill {
+  background: rgba(245,158,11,.15); border: 1px solid rgba(245,158,11,.5); color: #fcd34d;
+  border-radius: 999px; padding: 8px 16px; font-size: .82rem; font-weight: 700;
+}
+.hl-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.hl-row .btn { margin-top: 0; }
+.verdict { text-align: center; font-family: var(--font-heading); font-weight: 800;
+  font-size: 1.25rem; margin-bottom: 10px; }
+.verdict.ok { color: #6ee7b7; }
+.verdict.no { color: #f9a8d4; }
+.year-src { font-size: .68rem; color: var(--text-muted); margin-top: 8px; }
+
 /* ===== Eigene Playlists ===== */
 .mylist { display: flex; align-items: center; gap: 11px; padding: 10px; background: var(--bg-dark);
   border-radius: 12px; margin-bottom: 8px; cursor: pointer; border: 1px solid transparent; }
@@ -267,11 +305,34 @@ code.uri {
     </div>
   </div>
 
+  <!-- ============ MODUS-AUSWAHL ============ -->
+  <div id="view-modes" class="hidden">
+    <div class="app-header">
+      <span class="title">Spielmodus</span>
+      <button class="icon-btn" id="btn-settings" title="Einstellungen">⚙️</button>
+    </div>
+    <button class="mode-card" id="mode-classic">
+      <span class="ico">🃏</span>
+      <span>
+        <span class="t">Klassisch</span>
+        <span class="d">Song hören, Jahr raten, auflösen. Punkte notiert ihr selbst.</span>
+      </span>
+    </button>
+    <button class="mode-card alt" id="mode-highlow">
+      <span class="ico">⬆️</span>
+      <span>
+        <span class="t">Höher oder Tiefer</span>
+        <span class="d">Kam der Song vor oder nach dem letzten raus? Wie lang wird eure Serie?</span>
+      </span>
+    </button>
+  </div>
+
   <!-- ============ PACK-AUSWAHL ============ -->
   <div id="view-packs" class="hidden">
     <div class="app-header">
-      <span class="title">Snippet</span>
-      <button class="icon-btn" id="btn-settings" title="Einstellungen">⚙️</button>
+      <button class="icon-btn" id="btn-packs-back">←</button>
+      <span class="title" style="flex:1" id="packs-title">Pack wählen</span>
+      <button class="icon-btn" id="btn-settings2" title="Einstellungen">⚙️</button>
     </div>
     <div id="scope-note" class="note hidden">
       🔊 Für volle Songs braucht Snippet eine erweiterte Spotify-Berechtigung.
@@ -325,6 +386,15 @@ https://open.spotify.com/playlist/…"></textarea>
         <button class="chip" id="chip-start">Start: Anfang</button>
       </div>
       <p class="body-sm" style="margin-top:12px">„Start: Zufällig“ setzt mitten im Song ein – schwieriger und näher am Original-Spielgefühl.</p>
+      <h2 class="h2" style="margin-top:18px">📅 Jahreszahlen</h2>
+      <div class="chips">
+        <button class="chip" id="chip-fixyears">Korrektur: An</button>
+        <button class="chip" id="chip-mbalways">MusicBrainz: nur Verdacht</button>
+      </div>
+      <p class="body-sm" style="margin-top:12px">Spotify liefert oft das Jahr der Neuauflage statt des Originals. Die Korrektur sucht beim Import nach der ältesten Veröffentlichung – das dauert pro Playlist etwas länger, macht die Jahre aber deutlich verlässlicher.</p>
+      <button class="btn btn-ghost" id="btn-refix">Jahre aller Packs neu prüfen</button>
+      <div id="refix-progress" class="body-sm hidden" style="text-align:center;margin-top:10px"></div>
+
       <h2 class="h2" style="margin-top:18px">🔊 Wiedergabe</h2>
       <div class="chips">
         <button class="chip" id="chip-player">👁 Notfall-Player</button>
@@ -346,9 +416,15 @@ https://open.spotify.com/playlist/…"></textarea>
     <div class="game-head">
       <button class="icon-btn" id="btn-back">←</button>
       <span class="round-pill" id="game-round"></span>
-      <span style="width:40px"></span>
+      <span class="streak-pill hidden" id="streak-pill"></span>
     </div>
     <div class="pack-label" id="game-pack"></div>
+
+    <div class="ref-box hidden" id="ref-box">
+      <div class="lbl">Referenz-Song</div>
+      <div class="val mono" id="ref-year"></div>
+      <div class="sng" id="ref-song"></div>
+    </div>
 
     <div class="play-zone" id="play-zone">
       <div class="ring-wrap">
@@ -374,6 +450,10 @@ https://open.spotify.com/playlist/…"></textarea>
     <div id="player-box"></div>
 
     <div id="game-controls">
+      <div class="hl-row hidden" id="hl-buttons">
+        <button class="btn btn-purple" id="btn-older">⬇️ Älter</button>
+        <button class="btn btn-pink" id="btn-newer">⬆️ Jünger</button>
+      </div>
       <button class="btn btn-pink" id="btn-reveal">🃏 Jetzt auflösen</button>
       <button class="btn btn-primary hidden" id="btn-next">Weiter ›</button>
     </div>
@@ -420,7 +500,7 @@ function fmtTime(sec) {
 }
 
 /* ============ Views ============ */
-const VIEWS = ['view-splash', 'view-setup', 'view-login', 'view-packs', 'view-settings', 'view-game'];
+const VIEWS = ['view-splash', 'view-setup', 'view-login', 'view-modes', 'view-packs', 'view-settings', 'view-game'];
 function show(view) { VIEWS.forEach(v => $(v).classList.toggle('hidden', v !== view)); }
 function showErr(id, msg) { const el = $(id); el.textContent = msg; el.classList.remove('hidden'); }
 function hideErr(id) { $(id).classList.add('hidden'); }
@@ -529,9 +609,99 @@ async function fetchPlaylistTracks(playlistId) {
         year: t.album?.release_date ? t.album.release_date.slice(0, 4) : '?',
         cover: t.album?.images?.length ? t.album.images[Math.min(1, t.album.images.length - 1)].url : '',
         dur: t.duration_ms || 0,
+        isrc: t.external_ids?.isrc || '',
+        src: 'album',            // Herkunft des Jahres: album | spotify | musicbrainz
       });
     }
     offset += entries.length;
+  }
+  return tracks;
+}
+
+/* ============================================================
+   Jahres-Korrektur
+   Problem: album.release_date ist das Datum DES ALBUMS, auf dem der
+   Track liegt – bei Best-of/Remaster also viel zu spät.
+   Lösung: (1) Spotify-Suche nach allen Album-Versionen desselben
+   Songs, ältestes Datum gewinnt. (2) MusicBrainz kennt mit
+   first-release-date das echte Original-Datum.
+   ============================================================ */
+const YEAR_MIN = 1900;
+function plausibleYear(y) {
+  const n = parseInt(y, 10);
+  return Number.isFinite(n) && n >= YEAR_MIN && n <= new Date().getFullYear() + 1 ? n : null;
+}
+function normTitle(s) {
+  return (s || '').toLowerCase()
+    .replace(/\((.*?)\)|\[(.*?)\]/g, ' ')                     // Klammerzusätze weg
+    .replace(/-\s*(remaster|remastered|live|radio edit|single version|mono|stereo).*$/i, ' ')
+    .replace(/[^a-z0-9äöüß ]/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+}
+/* (1) Spotify: ältestes Album finden, auf dem dieser Song erschien */
+async function yearFromSpotifySearch(track) {
+  const firstArtist = (track.artist || '').split(',')[0].trim();
+  const q = encodeURIComponent(`track:${normTitle(track.title)} artist:${firstArtist}`);
+  let data;
+  try { data = await api(`/search?q=${q}&type=track&limit=10`); }
+  catch { return null; }
+  const wantTitle = normTitle(track.title);
+  let best = null;
+  for (const it of data?.tracks?.items || []) {
+    if (normTitle(it.name) !== wantTitle) continue;              // nur derselbe Song
+    const artists = (it.artists || []).map(a => a.name.toLowerCase());
+    if (firstArtist && !artists.some(a => a.includes(firstArtist.toLowerCase()))) continue;
+    const y = plausibleYear(it.album?.release_date?.slice(0, 4));
+    if (y && (best === null || y < best)) best = y;
+  }
+  return best;
+}
+/* (2) MusicBrainz: echtes Erstveröffentlichungsdatum */
+async function yearFromMusicBrainz(track) {
+  const base = 'https://musicbrainz.org/ws/2';
+  const pick = (recordings) => {
+    let best = null;
+    for (const r of recordings || []) {
+      const y = plausibleYear((r['first-release-date'] || '').slice(0, 4));
+      if (y && (best === null || y < best)) best = y;
+    }
+    return best;
+  };
+  try {
+    if (track.isrc) {                                            // exakter Treffer über ISRC
+      const res = await fetch(`${base}/isrc/${encodeURIComponent(track.isrc)}?fmt=json`);
+      if (res.ok) {
+        const y = pick((await res.json()).recordings);
+        if (y) return y;
+      }
+    }
+    const firstArtist = (track.artist || '').split(',')[0].trim();
+    const q = `recording:"${normTitle(track.title)}" AND artist:"${firstArtist}"`;
+    const res = await fetch(`${base}/recording?query=${encodeURIComponent(q)}&fmt=json&limit=5`);
+    if (!res.ok) return null;
+    return pick((await res.json()).recordings);
+  } catch { return null; }        // Netzwerk/CORS-Problem → still überspringen
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+/* Korrekturlauf über alle Tracks eines Packs */
+async function fixYears(tracks, onProgress) {
+  for (let i = 0; i < tracks.length; i++) {
+    const t = tracks[i];
+    onProgress?.(i + 1, tracks.length);
+    const current = plausibleYear(t.year);
+    const spotifyYear = await yearFromSpotifySearch(t);
+    if (spotifyYear && (current === null || spotifyYear < current)) {
+      t.year = String(spotifyYear); t.src = 'spotify';
+    }
+    // MusicBrainz nur dort, wo es sich lohnt: unbekanntes Jahr oder
+    // Verdacht auf Neuauflage (Album deutlich jünger als Spotify-Fund)
+    const now = plausibleYear(t.year);
+    const suspicious = now === null || (current !== null && spotifyYear !== null && current - spotifyYear >= 2);
+    if (suspicious || settings.mbAlways) {
+      const mbYear = await yearFromMusicBrainz(t);
+      if (mbYear && (now === null || mbYear < now)) { t.year = String(mbYear); t.src = 'musicbrainz'; }
+      await sleep(1100);                                        // MusicBrainz: max. 1 Anfrage/Sekunde
+    }
   }
   return tracks;
 }
@@ -564,7 +734,7 @@ function renderPacks() {
     grid.appendChild(card);
   });
 }
-async function addPlaylistById(id) {
+async function addPlaylistById(id, onProgress) {
   let meta;
   try { meta = await api('/playlists/' + id); }
   catch (e) { return { ok: false, error: e.message }; }
@@ -573,6 +743,10 @@ async function addPlaylistById(id) {
   catch (e) { return { ok: false, error: `„${meta.name}“: ${e.message}` }; }
   if (!tracks.length) {
     return { ok: false, error: `„${meta.name}“: keine Songs gefunden. Bei fremden Playlists liefert Spotify keine Songliste – erstelle eine eigene Kopie in deinem Konto.` };
+  }
+  if (settings.fixYears) {
+    await fixYears(tracks, (done, total) =>
+      onProgress?.(`Prüfe Jahreszahlen … ${done}/${total}`));
   }
   const cover = meta.images?.length ? meta.images[0].url : (tracks.find(t => t.cover)?.cover || '');
   const packs = getPacks();
@@ -593,10 +767,11 @@ async function loadPlaylists(raw) {
   const prog = $('load-progress'); prog.classList.remove('hidden');
   const errors = []; let okCount = 0;
   for (let i = 0; i < lines.length; i++) {
-    prog.textContent = lines.length > 1 ? `Lade Playlist ${i + 1} von ${lines.length} …` : 'Lade Playlist …';
+    const prefix = lines.length > 1 ? `Playlist ${i + 1}/${lines.length}: ` : '';
+    prog.textContent = prefix + 'Lade Songs …';
     const id = parsePlaylistId(lines[i]);
     if (!id) { errors.push(`„${lines[i]}“ ist kein gültiger Playlist-Link.`); continue; }
-    const res = await addPlaylistById(id);
+    const res = await addPlaylistById(id, (msg) => { prog.textContent = prefix + msg; });
     if (res.ok) okCount++; else errors.push(res.error);
   }
   renderPacks();
@@ -607,7 +782,7 @@ async function loadPlaylists(raw) {
     showErr('load-err', (okCount ? `${okCount} von ${lines.length} geladen.\n` : '') + errors.join('\n'));
   } else {
     $('inp-playlist').value = '';
-    show('view-packs');
+    openPacks();
   }
 }
 async function loadMyPlaylists() {
@@ -638,13 +813,18 @@ async function loadMyPlaylists() {
 
 /* ============ Einstellungen ============ */
 let settings = Object.assign(
-  { mode: 'random', auto: false, showPlayer: false, len: 30, start: 'begin' },
+  { mode: 'random', auto: false, showPlayer: false, len: 30, start: 'begin',
+    fixYears: true, mbAlways: false, bestStreak: 0 },
   store.get(LS.settings, {})
 );
 function saveSettings() { store.set(LS.settings, settings); }
 function renderChips() {
   $('chip-mode').textContent = settings.mode === 'random' ? '🔀 Zufall' : '➡️ Reihenfolge';
   $('chip-mode').classList.add('on');
+  $('chip-fixyears').textContent = settings.fixYears ? 'Korrektur: An' : 'Korrektur: Aus';
+  $('chip-fixyears').classList.toggle('on', settings.fixYears);
+  $('chip-mbalways').textContent = settings.mbAlways ? 'MusicBrainz: immer' : 'MusicBrainz: nur Verdacht';
+  $('chip-mbalways').classList.toggle('on', settings.mbAlways);
   $('chip-auto').classList.toggle('on', settings.auto);
   $('chip-len').textContent = settings.len ? `Länge: ${settings.len}s` : 'Länge: ganzer Song';
   $('chip-len').classList.add('on');
@@ -738,7 +918,8 @@ function ensureEmbed(trackId, cb) {
 }
 
 /* ============ Spiel ============ */
-let game = { packIndex: -1, current: null, revealed: false, trackEnded: false };
+let game = { packIndex: -1, current: null, revealed: false, trackEnded: false,
+             gameMode: 'classic', ref: null, streak: 0 };
 let inGame = false, wakeLock = null;
 let playbackStartMs = 0;
 let ringTimer = null, ringStart = 0, ringElapsed = 0, ringRunning = false;
@@ -814,6 +995,8 @@ function pickNextTrack(pack) {
 }
 async function startGame(packIndex) {
   game.packIndex = packIndex;
+  game.ref = null;
+  game.streak = 0;
   inGame = true;
   acquireWakeLock();
   show('view-game');
@@ -826,7 +1009,7 @@ async function startGame(packIndex) {
 }
 async function nextRound(autoplay = false) {
   const packs = getPacks(), pack = packs[game.packIndex];
-  if (!pack) { show('view-packs'); return; }
+  if (!pack) { openPacks(); return; }
   const track = pickNextTrack(pack);
   game.current = track;
   game.revealed = false;
@@ -835,10 +1018,10 @@ async function nextRound(autoplay = false) {
   savePacks(packs);
   $('reveal-box').classList.add('hidden');
   $('play-zone').classList.remove('hidden');
-  $('btn-reveal').classList.remove('hidden');
   $('btn-next').classList.add('hidden');
   $('game-round').textContent = `Runde ${pack.played.length} / ${pack.tracks.length}`;
   $('game-pack').textContent = pack.name;
+  renderModeUi();
   ringReset();
   playbackStartMs = 0;
 
@@ -877,25 +1060,71 @@ async function togglePlayPause() {
   }
   if (embedController) embedController.togglePlay();
 }
-function reveal() {
+/* --- Modusabhängige Oberfläche --- */
+function renderModeUi() {
+  const hl = game.gameMode === 'highlow';
+  const hasRef = hl && !!game.ref;
+  $('ref-box').classList.toggle('hidden', !hasRef);
+  $('hl-buttons').classList.toggle('hidden', !hasRef);
+  $('btn-reveal').classList.toggle('hidden', hasRef);
+  $('streak-pill').classList.toggle('hidden', !hl);
+  if (hl) $('streak-pill').textContent = `🔥 ${game.streak}` + (settings.bestStreak ? ` · Best ${settings.bestStreak}` : '');
+  if (hasRef) {
+    $('ref-year').textContent = game.ref.year;
+    $('ref-song').textContent = `${game.ref.title} – ${game.ref.artist}`;
+    $('play-hint').textContent = 'Kam dieser Song vor oder nach dem Referenz-Song raus?';
+  } else if (hl) {
+    $('play-hint').textContent = 'Erster Song: einfach anhören und auflösen – er wird zur Referenz.';
+  }
+}
+/* --- Höher/Tiefer: Tipp auswerten --- */
+function guessHighLow(guessNewer) {
+  const t = game.current, ref = game.ref;
+  if (!t || !ref || game.revealed) return;
+  buzz(25);
+  const y = parseInt(t.year, 10), refY = parseInt(ref.year, 10);
+  let correct;
+  if (!Number.isFinite(y) || !Number.isFinite(refY)) correct = null;    // Jahr unbekannt → Runde zählt nicht
+  else if (y === refY) correct = true;                                  // Gleichstand zählt als richtig
+  else correct = guessNewer ? y > refY : y < refY;
+  if (correct === true) { game.streak++; if (game.streak > settings.bestStreak) { settings.bestStreak = game.streak; saveSettings(); } }
+  else if (correct === false) game.streak = 0;
+  revealTrack(correct);
+}
+function reveal() { revealTrack(undefined); }
+/* --- Auflösung anzeigen; verdict: true/false/null/undefined --- */
+function revealTrack(verdict) {
   const t = game.current;
   if (!t || game.revealed) return;
   game.revealed = true;
   buzz(30);
+  const srcLabel = { spotify: 'Jahr über Spotify-Suche korrigiert',
+                     musicbrainz: 'Jahr laut MusicBrainz (Erstveröffentlichung)' }[t.src];
+  let verdictHtml = '';
+  if (verdict === true)  verdictHtml = '<div class="verdict ok">✓ Richtig!</div>';
+  if (verdict === false) verdictHtml = '<div class="verdict no">✗ Daneben – Serie beendet</div>';
+  if (verdict === null)  verdictHtml = '<div class="verdict">🤷 Jahr unbekannt – zählt nicht</div>';
   const box = $('reveal-box');
   box.innerHTML = `
-    <div class="badge">✓ Auflösung</div>
+    ${verdictHtml}
     ${t.cover ? `<img src="${t.cover}" alt="Cover">` : ''}
     <div class="reveal-year mono">${t.year}</div>
     <div class="reveal-title"></div>
-    <div class="reveal-artist"></div>`;
+    <div class="reveal-artist"></div>
+    ${srcLabel ? `<div class="year-src">${srcLabel}</div>` : ''}`;
   box.querySelector('.reveal-title').textContent = t.title;
   box.querySelector('.reveal-artist').textContent = t.artist;
   box.classList.remove('hidden');
   $('play-zone').classList.add('hidden');
   $('btn-reveal').classList.add('hidden');
+  $('hl-buttons').classList.add('hidden');
   $('btn-next').classList.remove('hidden');
-  confetti();
+  // Im Höher/Tiefer-Modus wird der aufgedeckte Song zur neuen Referenz
+  if (game.gameMode === 'highlow' && Number.isFinite(parseInt(t.year, 10))) game.ref = t;
+  if (game.gameMode === 'highlow') {
+    $('streak-pill').textContent = `🔥 ${game.streak}` + (settings.bestStreak ? ` · Best ${settings.bestStreak}` : '');
+  }
+  if (verdict !== false) confetti();
 }
 function confetti() {
   const colors = ['#EC4899', '#8B5CF6', '#10B981', '#F59E0B'];
@@ -920,7 +1149,34 @@ function leaveGame() {
   if (usingSdk() && sdkPlayer) sdkPlayer.pause();
   else if (embedController) embedController.pause();
   inGame = false; releaseWakeLock(); ringReset(); stopSdkPoll();
-  show('view-packs'); renderPacks();
+  openPacks();
+}
+function openPacks() {
+  renderPacks();
+  $('packs-title').textContent = game.gameMode === 'highlow' ? 'Höher/Tiefer · Pack' : 'Pack wählen';
+  show('view-packs');
+}
+function chooseMode(mode) {
+  buzz();
+  game.gameMode = mode;
+  openPacks();
+}
+/* Jahre aller vorhandenen Packs nachträglich prüfen */
+async function refixAllPacks() {
+  const packs = getPacks();
+  if (!packs.length) return;
+  const el = $('refix-progress');
+  el.classList.remove('hidden');
+  $('btn-refix').disabled = true;
+  for (let i = 0; i < packs.length; i++) {
+    await fixYears(packs[i].tracks, (done, total) => {
+      el.textContent = `Pack ${i + 1}/${packs.length} – „${packs[i].name}“: ${done}/${total}`;
+    });
+    savePacks(packs);        // Zwischenstand sichern
+  }
+  el.textContent = 'Fertig ✓';
+  $('btn-refix').disabled = false;
+  setTimeout(() => el.classList.add('hidden'), 2500);
 }
 
 /* ============ Events ============ */
@@ -935,11 +1191,21 @@ $('btn-relogin').onclick = () => startLogin().catch(e => alert(e.message));
 $('btn-change-client').onclick  = () => { store.del(LS.clientId); route(true); };
 $('btn-change-client2').onclick = () => { store.del(LS.clientId); route(true); };
 $('btn-logout').onclick = () => { store.del(LS.tokens); store.del(LS.scopes); route(true); };
-$('btn-settings').onclick = () => { buzz(); renderChips(); show('view-settings'); };
-$('btn-empty-settings').onclick = () => { renderChips(); show('view-settings'); };
-$('btn-settings-back').onclick = () => { renderPacks(); show('view-packs'); };
+const openSettings = () => { buzz(); renderChips(); show('view-settings'); };
+$('btn-settings').onclick  = openSettings;
+$('btn-settings2').onclick = openSettings;
+$('btn-empty-settings').onclick = openSettings;
+$('btn-settings-back').onclick = openPacks;
+$('btn-packs-back').onclick = () => show('view-modes');
+$('mode-classic').onclick = () => chooseMode('classic');
+$('mode-highlow').onclick = () => chooseMode('highlow');
+$('btn-older').onclick = () => guessHighLow(false);
+$('btn-newer').onclick = () => guessHighLow(true);
+$('btn-refix').onclick = refixAllPacks;
 $('btn-load-playlist').onclick = () => loadPlaylists($('inp-playlist').value);
 $('btn-refresh-mylists').onclick = loadMyPlaylists;
+$('chip-fixyears').onclick = () => { settings.fixYears = !settings.fixYears; saveSettings(); renderChips(); };
+$('chip-mbalways').onclick = () => { settings.mbAlways = !settings.mbAlways; saveSettings(); renderChips(); };
 $('chip-mode').onclick   = () => { settings.mode = settings.mode === 'random' ? 'order' : 'random'; saveSettings(); renderChips(); };
 $('chip-auto').onclick   = () => { settings.auto = !settings.auto; saveSettings(); renderChips(); };
 $('chip-len').onclick    = () => { settings.len = LEN_STEPS[(LEN_STEPS.indexOf(settings.len) + 1) % LEN_STEPS.length]; saveSettings(); renderChips(); };
@@ -961,7 +1227,7 @@ async function route(skipSplash = false) {
   $('scope-note').classList.toggle('hidden', hasStreamingScope());
   initSdkPlayer();
   renderChips(); renderPacks(); setRing(0);
-  show('view-packs');
+  show('view-modes');
 }
 (async function init() {
   let fromLogin = false;
