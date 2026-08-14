@@ -258,7 +258,9 @@ code.uri {
 .reveal-card img { width: 190px; max-width: 72%; aspect-ratio: 1; object-fit: cover;
   border-radius: 12px; box-shadow: 0 12px 34px rgba(0,0,0,.55); margin-bottom: 16px; }
 .reveal-year { font-family: var(--font-mono); font-weight: 700; font-size: 3rem; color: var(--amber);
-  line-height: 1.05; margin-bottom: 10px; }
+  line-height: 1.05; margin-bottom: 10px; cursor: pointer; display: inline-block;
+  padding: 2px 14px; border-radius: 12px; border: 1px dashed transparent; transition: border-color .2s; }
+.reveal-year:active { border-color: rgba(245,158,11,.6); }
 .reveal-title { font-family: var(--font-heading); font-weight: 700; font-size: 1.12rem; }
 .reveal-artist { color: var(--text-muted); font-size: .92rem; margin-top: 4px; }
 </style>
@@ -610,7 +612,9 @@ async function fetchPlaylistTracks(playlistId) {
         cover: t.album?.images?.length ? t.album.images[Math.min(1, t.album.images.length - 1)].url : '',
         dur: t.duration_ms || 0,
         isrc: t.external_ids?.isrc || '',
-        src: 'album',            // Herkunft des Jahres: album | spotify | musicbrainz
+        src: 'album',            // Herkunft des Jahres: album | spotify | musicbrainz | manuell
+        atype: t.album?.album_type || '',
+        aname: t.album?.name || '',
       });
     }
     offset += entries.length;
@@ -638,25 +642,38 @@ function normTitle(s) {
     .replace(/[^a-z0-9äöüß ]/g, ' ')
     .replace(/\s+/g, ' ').trim();
 }
-/* (1) Spotify: ältestes Album finden, auf dem dieser Song erschien */
+/* (1) Spotify: ältestes Album finden, auf dem dieser Song erschien.
+   Wichtig: Feldsuchen mit mehreren Wörtern MÜSSEN in Anführungszeichen
+   stehen – sonst zerfällt track:du entschuldige … in lauter Einzelwörter. */
 async function yearFromSpotifySearch(track) {
   const firstArtist = (track.artist || '').split(',')[0].trim();
-  const q = encodeURIComponent(`track:${normTitle(track.title)} artist:${firstArtist}`);
-  let data;
-  try { data = await api(`/search?q=${q}&type=track&limit=10`); }
-  catch { return null; }
   const wantTitle = normTitle(track.title);
-  let best = null;
-  for (const it of data?.tracks?.items || []) {
-    if (normTitle(it.name) !== wantTitle) continue;              // nur derselbe Song
-    const artists = (it.artists || []).map(a => a.name.toLowerCase());
-    if (firstArtist && !artists.some(a => a.includes(firstArtist.toLowerCase()))) continue;
-    const y = plausibleYear(it.album?.release_date?.slice(0, 4));
-    if (y && (best === null || y < best)) best = y;
+  const queries = [
+    `track:"${wantTitle}" artist:"${firstArtist}"`,   // präzise Feldsuche
+    `${wantTitle} ${firstArtist}`,                    // Rückfall: freie Suche
+  ];
+  let best = null, seen = false;
+  for (const raw of queries) {
+    let data;
+    try { data = await api(`/search?q=${encodeURIComponent(raw)}&type=track&limit=10`); }
+    catch { continue; }
+    for (const it of data?.tracks?.items || []) {
+      if (normTitle(it.name) !== wantTitle) continue;             // nur derselbe Song
+      const artists = (it.artists || []).map(a => a.name.toLowerCase());
+      if (firstArtist && !artists.some(a => a.includes(firstArtist.toLowerCase()))) continue;
+      const y = plausibleYear(it.album?.release_date?.slice(0, 4));
+      if (y) { seen = true; if (best === null || y < best) best = y; }
+    }
+    if (seen) break;                                             // erste Suche war ergiebig
   }
   return best;
 }
-/* (2) MusicBrainz: echtes Erstveröffentlichungsdatum */
+/* (2) MusicBrainz: echtes Erstveröffentlichungsdatum.
+   Reihenfolge bewusst: erst die Titel-/Interpreten-Suche, denn sie findet
+   ALLE Aufnahmen eines Songs – auch die Originalaufnahme, wenn in der
+   Playlist eine spätere Neuaufnahme steckt. Die ISRC-Suche liefert dagegen
+   nur die Erstveröffentlichung GENAU DIESER Aufnahme (bei Neuaufnahmen
+   also wieder das späte Jahr) und dient nur als Rückfallebene. */
 async function yearFromMusicBrainz(track) {
   const base = 'https://musicbrainz.org/ws/2';
   const pick = (recordings) => {
@@ -668,39 +685,48 @@ async function yearFromMusicBrainz(track) {
     return best;
   };
   try {
-    if (track.isrc) {                                            // exakter Treffer über ISRC
-      const res = await fetch(`${base}/isrc/${encodeURIComponent(track.isrc)}?fmt=json`);
-      if (res.ok) {
-        const y = pick((await res.json()).recordings);
-        if (y) return y;
-      }
-    }
     const firstArtist = (track.artist || '').split(',')[0].trim();
     const q = `recording:"${normTitle(track.title)}" AND artist:"${firstArtist}"`;
-    const res = await fetch(`${base}/recording?query=${encodeURIComponent(q)}&fmt=json&limit=5`);
-    if (!res.ok) return null;
-    return pick((await res.json()).recordings);
+    const res = await fetch(`${base}/recording?query=${encodeURIComponent(q)}&fmt=json&limit=25`);
+    if (res.ok) {
+      const y = pick((await res.json()).recordings);
+      if (y) return y;
+    }
+    if (track.isrc) {
+      const r2 = await fetch(`${base}/isrc/${encodeURIComponent(track.isrc)}?fmt=json`);
+      if (r2.ok) return pick((await r2.json()).recordings);
+    }
+    return null;
   } catch { return null; }        // Netzwerk/CORS-Problem → still überspringen
 }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+/* Deutet der Albumname/-typ auf eine Sammlung oder Neuauflage hin?
+   Genau dann lohnt sich die zusätzliche MusicBrainz-Abfrage. */
+const REISSUE_RX = /best of|greatest hits|the hits|hit(s|mix)|collection|anthology|jubil|edition|remaster|neu ?aufnahme|re-?recorded|das beste|meine lieder|liebeslieder|unplugged|live|sampler|party/i;
+function looksLikeReissue(t) {
+  return t.atype === 'compilation' || REISSUE_RX.test(t.aname || '');
+}
 /* Korrekturlauf über alle Tracks eines Packs */
 async function fixYears(tracks, onProgress) {
   for (let i = 0; i < tracks.length; i++) {
     const t = tracks[i];
     onProgress?.(i + 1, tracks.length);
+    if (t.src === 'manuell') continue;                     // von Hand gesetzte Jahre nie überschreiben
     const current = plausibleYear(t.year);
     const spotifyYear = await yearFromSpotifySearch(t);
     if (spotifyYear && (current === null || spotifyYear < current)) {
       t.year = String(spotifyYear); t.src = 'spotify';
     }
-    // MusicBrainz nur dort, wo es sich lohnt: unbekanntes Jahr oder
-    // Verdacht auf Neuauflage (Album deutlich jünger als Spotify-Fund)
+    // MusicBrainz dort, wo es sich lohnt: unbekanntes Jahr, Verdacht auf
+    // Neuauflage laut Albumname/-typ, oder Spotify fand etwas deutlich Älteres
     const now = plausibleYear(t.year);
-    const suspicious = now === null || (current !== null && spotifyYear !== null && current - spotifyYear >= 2);
+    const suspicious = now === null
+      || looksLikeReissue(t)
+      || (current !== null && spotifyYear !== null && current - spotifyYear >= 2);
     if (suspicious || settings.mbAlways) {
       const mbYear = await yearFromMusicBrainz(t);
       if (mbYear && (now === null || mbYear < now)) { t.year = String(mbYear); t.src = 'musicbrainz'; }
-      await sleep(1100);                                        // MusicBrainz: max. 1 Anfrage/Sekunde
+      await sleep(1100);                                   // MusicBrainz: max. 1 Anfrage/Sekunde
     }
   }
   return tracks;
@@ -1092,6 +1118,23 @@ function guessHighLow(guessNewer) {
   revealTrack(correct);
 }
 function reveal() { revealTrack(undefined); }
+/* --- Jahr von Hand korrigieren (wird dauerhaft im Pack gespeichert) --- */
+function editYear(track) {
+  const input = prompt(`Richtiges Erscheinungsjahr für „${track.title}“:`, track.year);
+  if (input === null) return;
+  const y = plausibleYear(input.trim());
+  if (!y) { alert('Bitte eine Jahreszahl zwischen ' + YEAR_MIN + ' und heute eingeben.'); return; }
+  const packs = getPacks();
+  const pack = packs[game.packIndex];
+  const stored = pack?.tracks.find(x => x.id === track.id);
+  if (stored) { stored.year = String(y); stored.src = 'manuell'; savePacks(packs); }
+  track.year = String(y); track.src = 'manuell';
+  const el = $('reveal-year');
+  if (el) el.textContent = track.year;
+  const src = document.querySelector('#reveal-box .year-src');
+  if (src) src.textContent = 'Jahr von dir korrigiert · Antippen zum Ändern';
+  buzz(20);
+}
 /* --- Auflösung anzeigen; verdict: true/false/null/undefined --- */
 function revealTrack(verdict) {
   const t = game.current;
@@ -1099,7 +1142,9 @@ function revealTrack(verdict) {
   game.revealed = true;
   buzz(30);
   const srcLabel = { spotify: 'Jahr über Spotify-Suche korrigiert',
-                     musicbrainz: 'Jahr laut MusicBrainz (Erstveröffentlichung)' }[t.src];
+                     musicbrainz: 'Jahr laut MusicBrainz (Erstveröffentlichung)',
+                     manuell: 'Jahr von dir korrigiert' }[t.src]
+                   || (t.aname ? 'Jahr des Albums „' + t.aname + '“' : '');
   let verdictHtml = '';
   if (verdict === true)  verdictHtml = '<div class="verdict ok">✓ Richtig!</div>';
   if (verdict === false) verdictHtml = '<div class="verdict no">✗ Daneben – Serie beendet</div>';
@@ -1108,12 +1153,13 @@ function revealTrack(verdict) {
   box.innerHTML = `
     ${verdictHtml}
     ${t.cover ? `<img src="${t.cover}" alt="Cover">` : ''}
-    <div class="reveal-year mono">${t.year}</div>
+    <div class="reveal-year mono" id="reveal-year" title="Antippen, um das Jahr zu korrigieren">${t.year}</div>
     <div class="reveal-title"></div>
     <div class="reveal-artist"></div>
-    ${srcLabel ? `<div class="year-src">${srcLabel}</div>` : ''}`;
+    <div class="year-src">${srcLabel ? srcLabel + ' · ' : ''}Jahr falsch? Antippen zum Ändern</div>`;
   box.querySelector('.reveal-title').textContent = t.title;
   box.querySelector('.reveal-artist').textContent = t.artist;
+  box.querySelector('#reveal-year').onclick = () => editYear(t);
   box.classList.remove('hidden');
   $('play-zone').classList.add('hidden');
   $('btn-reveal').classList.add('hidden');
@@ -1165,6 +1211,9 @@ function chooseMode(mode) {
 async function refixAllPacks() {
   const packs = getPacks();
   if (!packs.length) return;
+  const totalTracks = packs.reduce((n, p) => n + p.tracks.length, 0);
+  const minutes = Math.ceil(totalTracks * (settings.mbAlways ? 1.4 : 0.6) / 60);
+  if (!confirm(`${totalTracks} Songs werden geprüft – das dauert etwa ${minutes} Minute(n).\n\nBitte lass die App dabei im Vordergrund geöffnet. Fortfahren?`)) return;
   const el = $('refix-progress');
   el.classList.remove('hidden');
   $('btn-refix').disabled = true;
