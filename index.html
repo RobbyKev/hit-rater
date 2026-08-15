@@ -235,6 +235,27 @@ code.uri {
   box-shadow: 0 4px 22px rgba(0,242,254,.42); }
 .mode-card.mic .ico { background: linear-gradient(145deg, #00F2FE, #4FACFE); color: #04121f; }
 
+/* ===== Wiedergabe-Auswahl (zwei Karten) ===== */
+.pb-card {
+  display: block; width: 100%; text-align: left; cursor: pointer; margin-bottom: 12px;
+  background: var(--bg-dark); border: 1px solid rgba(255,255,255,.10);
+  border-radius: 16px; padding: 0; overflow: hidden; color: var(--text);
+  font-family: var(--font-body); transition: all .2s;
+}
+.pb-card .inner { padding: 16px 16px 12px; }
+.pb-card .t { font-family: var(--font-heading); font-weight: 700; font-size: 1.05rem; }
+.pb-card .d { font-size: .8rem; color: var(--text-muted); margin-top: 4px; line-height: 1.45; }
+.pb-card .req { font-size: .78rem; font-weight: 700; color: var(--success-green); margin-top: 6px; }
+.pb-card .bars { display: flex; align-items: center; gap: 3px; height: 46px; margin-top: 14px; }
+.pb-card .bars i { flex: 1; background: rgba(255,255,255,.28); border-radius: 2px; }
+.pb-card.on { border-color: var(--primary-glow); box-shadow: 0 0 26px rgba(236,72,153,.3); }
+.pb-card.on .bars i { background: rgba(255,255,255,.85); }
+.pb-card .tag {
+  display: none; background: var(--primary-glow); color: #fff; text-align: center;
+  font-weight: 800; font-size: .78rem; letter-spacing: 1px; padding: 10px;
+}
+.pb-card.on .tag { display: block; }
+
 /* ===== Weitersingen ===== */
 .mode-card.sing .ico { background: linear-gradient(145deg, #F59E0B, #EC4899); }
 .sing-banner {
@@ -299,15 +320,23 @@ code.uri {
 .play-zone { display: flex; flex-direction: column; align-items: center; justify-content: center;
   flex: 1; padding: 8px 0 14px; }
 .ring-wrap { position: relative; width: 232px; height: 232px; }
-.ring-wrap svg { position: absolute; inset: 0; transform: rotate(-90deg); }
-.ring-track { fill: none; stroke: rgba(255,255,255,.07); stroke-width: 7; }
+.ring-svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.ring-track { fill: none; stroke: rgba(255,255,255,.07); stroke-width: 5; }
 /* keine CSS-Transition: der Ring wird pro Bild neu gezeichnet */
-.ring-prog  { fill: none; stroke: url(#ringGrad); stroke-width: 7; stroke-linecap: round;
+.ring-prog  { fill: none; stroke: url(#ringGrad); stroke-width: 5; stroke-linecap: round;
   filter: drop-shadow(0 0 7px rgba(236,72,153,.8)); }
+/* Schallplatte */
+.disc {
+  position: absolute; inset: 0; animation: discSpin 9s linear infinite;
+  filter: drop-shadow(0 0 10px rgba(236,72,153,.35));
+}
+.disc.paused { animation-play-state: paused; }
+@keyframes discSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .disc { animation: none; } }
 .play-core {
-  position: absolute; inset: 30px; border-radius: 50%; border: none; cursor: pointer;
+  position: absolute; inset: 62px; border-radius: 50%; border: none; cursor: pointer;
   background: linear-gradient(145deg, var(--accent-purple), var(--primary-glow));
-  color: #fff; font-size: 3rem; display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 2.2rem; display: flex; align-items: center; justify-content: center;
   box-shadow: 0 0 44px rgba(139,92,246,.6); transition: transform .12s;
 }
 .play-core:active { transform: scale(.94); }
@@ -497,12 +526,35 @@ https://open.spotify.com/playlist/…"></textarea>
         <button class="chip" id="chip-mode">🔀 Zufall</button>
         <button class="chip" id="chip-auto">🔁 Auto-Weiter</button>
       </div>
-      <h2 class="h2" style="margin-top:18px">⏱ Ausschnitt</h2>
-      <div class="chips">
-        <button class="chip" id="chip-len">Länge: 30s</button>
-        <button class="chip" id="chip-start">Start: Anfang</button>
+      <h2 class="h2" style="margin-top:18px">🔊 Wiedergabe</h2>
+      <button class="pb-card" id="pb-full">
+        <span class="inner">
+          <span class="t">Ganze Titel</span>
+          <span class="d">Spielt den Song ab dem Anfang – Länge und Startpunkt kannst du unten einstellen.</span>
+          <span class="req">Erfordert Spotify Premium.</span>
+          <span class="bars" id="bars-full"></span>
+        </span>
+        <span class="tag">AKTUELL AKTIV</span>
+      </button>
+      <button class="pb-card" id="pb-preview">
+        <span class="inner">
+          <span class="t">30-Sekunden-Vorschau</span>
+          <span class="d">Spotifys eigener Ausschnitt – trifft meist die markanteste Stelle des Songs. Ohne Premium nutzbar.</span>
+          <span class="bars" id="bars-preview"></span>
+        </span>
+        <span class="tag">AKTUELL AKTIV</span>
+      </button>
+      <p class="body-sm" id="playback-status"></p>
+
+      <div id="full-options">
+        <h2 class="h2" style="margin-top:18px">⏱ Ausschnitt</h2>
+        <div class="chips">
+          <button class="chip" id="chip-len">Länge: 30s</button>
+          <button class="chip" id="chip-start">Start: Anfang</button>
+        </div>
+        <p class="body-sm" style="margin-top:12px">„Start: Zufällig“ setzt mitten im Song ein – schwieriger und näher am Original-Spielgefühl.</p>
       </div>
-      <p class="body-sm" style="margin-top:12px">„Start: Zufällig“ setzt mitten im Song ein – schwieriger und näher am Original-Spielgefühl.</p>
+
       <h2 class="h2" style="margin-top:18px">📅 Jahreszahlen</h2>
       <div class="chips">
         <button class="chip" id="chip-fixyears">Korrektur: An</button>
@@ -512,11 +564,11 @@ https://open.spotify.com/playlist/…"></textarea>
       <button class="btn btn-ghost" id="btn-refix">Jahre aller Packs neu prüfen</button>
       <div id="refix-progress" class="body-sm hidden" style="text-align:center;margin-top:10px"></div>
 
-      <h2 class="h2" style="margin-top:18px">🔊 Wiedergabe</h2>
+      <h2 class="h2" style="margin-top:18px">🛟 Notfall</h2>
       <div class="chips">
-        <button class="chip" id="chip-player">👁 Notfall-Player</button>
+        <button class="chip" id="chip-player">👁 Player einblenden</button>
       </div>
-      <p class="body-sm" id="playback-status" style="margin-top:12px"></p>
+      <p class="body-sm" style="margin-top:12px">Blendet den Spotify-Player im Spiel ein – hilfreich, falls auf dem Handy kein Ton startet.</p>
     </div>
 
     <div class="card">
@@ -545,7 +597,8 @@ https://open.spotify.com/playlist/…"></textarea>
 
     <div class="play-zone" id="play-zone">
       <div class="ring-wrap">
-        <svg viewBox="0 0 100 100">
+        <!-- Fortschrittsring -->
+        <svg class="ring-svg" viewBox="0 0 100 100">
           <defs>
             <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
               <stop offset="0%"   stop-color="#8B5CF6"/>
@@ -553,8 +606,20 @@ https://open.spotify.com/playlist/…"></textarea>
               <stop offset="100%" stop-color="#F59E0B"/>
             </linearGradient>
           </defs>
-          <circle class="ring-track" cx="50" cy="50" r="45"/>
-          <circle class="ring-prog" id="ring-prog" cx="50" cy="50" r="45"/>
+          <circle class="ring-track" cx="50" cy="50" r="46"/>
+          <circle class="ring-prog" id="ring-prog" cx="50" cy="50" r="46"/>
+        </svg>
+        <!-- Bunte Schallplatte: dreht sich nur, solange Musik läuft -->
+        <svg class="disc paused" id="disc" viewBox="0 0 100 100">
+          <g fill="none" stroke-linecap="round">
+            <circle cx="50" cy="50" r="41" stroke="#EC4899" stroke-width="2.4" stroke-dasharray="74 46 38 100"/>
+            <circle cx="50" cy="50" r="41" stroke="#4FACFE" stroke-width="2.4" stroke-dasharray="0 120 52 90"/>
+            <circle cx="50" cy="50" r="36" stroke="#F5D90A" stroke-width="2.4" stroke-dasharray="58 40 30 98"/>
+            <circle cx="50" cy="50" r="36" stroke="#EC4899" stroke-width="2.4" stroke-dasharray="0 110 34 82"/>
+            <circle cx="50" cy="50" r="31" stroke="#F97316" stroke-width="2.4" stroke-dasharray="46 38 62 50"/>
+            <circle cx="50" cy="50" r="31" stroke="#4FACFE" stroke-width="2.4" stroke-dasharray="0 96 40 60"/>
+            <circle cx="50" cy="50" r="26" stroke="#F5D90A" stroke-width="2.2" stroke-dasharray="52 30 26 56"/>
+          </g>
         </svg>
         <button class="play-core" id="btn-play">▶</button>
       </div>
@@ -612,7 +677,7 @@ const SCOPES = [
 ].join(' ');
 const REDIRECT_URI = location.origin + location.pathname;
 const LEN_STEPS = [15, 30, 45, 0];          // 0 = ganzer Song
-const RING_C = 2 * Math.PI * 45;
+const RING_C = 2 * Math.PI * 46;   // muss zum r-Wert im SVG passen
 const $ = id => document.getElementById(id);
 const store = {
   get(k, fb = null) { try { return JSON.parse(localStorage.getItem(k)) ?? fb; } catch { return fb; } },
@@ -1064,6 +1129,7 @@ async function loadMyPlaylists() {
 /* ============ Einstellungen ============ */
 let settings = Object.assign(
   { mode: 'random', auto: false, showPlayer: false, len: 30, start: 'begin',
+    playback: 'full',            // 'full' = ganze Titel (SDK) | 'preview' = 30-Sek-Clip
     fixYears: true, mbAlways: false, bestStreak: 0, wordLang: 'both', wordTimer: 0 },
   store.get(LS.settings, {})
 );
@@ -1082,11 +1148,37 @@ function renderChips() {
   $('chip-start').classList.toggle('on', settings.start === 'random');
   $('chip-player').classList.toggle('on', settings.showPlayer);
   $('player-box').classList.toggle('visible', settings.showPlayer);
-  $('playback-status').textContent = sdkReady
-    ? '✅ Volle Songs über Spotify Premium aktiv.'
-    : (hasStreamingScope()
-        ? 'Volle Wiedergabe wird beim Spielstart verbunden. Klappt das nicht (kein Premium o. Ä.), läuft automatisch die 30-Sekunden-Vorschau.'
-        : 'Aktuell nur 30-Sekunden-Vorschau. Für volle Songs bitte neu anmelden.');
+  renderPlaybackCards();
+}
+/* Balken-Grafik der beiden Wiedergabe-Karten (rein dekorativ) */
+function drawBars(el, peakCenter) {
+  if (!el || el.childElementCount) return;
+  const n = 46;
+  let html = '';
+  for (let i = 0; i < n; i++) {
+    const d = Math.abs(i / (n - 1) - peakCenter);
+    const h = Math.max(10, (1 - d * 1.6) * 100 * (0.55 + Math.random() * 0.45));
+    html += `<i style="height:${Math.min(100, h)}%"></i>`;
+  }
+  el.innerHTML = html;
+}
+function renderPlaybackCards() {
+  const preview = settings.playback === 'preview';
+  $('pb-full').classList.toggle('on', !preview);
+  $('pb-preview').classList.toggle('on', preview);
+  $('full-options').classList.toggle('hidden', preview);
+  drawBars($('bars-full'), 0.18);      // Vollmodus: Betonung am Anfang
+  drawBars($('bars-preview'), 0.55);   // Vorschau: markanter Teil in der Mitte
+  const s = $('playback-status');
+  if (preview) {
+    s.textContent = 'Spotify wählt den Ausschnitt selbst aus – meist die bekannteste Stelle. Länge fest 30 Sekunden.';
+  } else if (sdkReady) {
+    s.textContent = '✅ Volle Wiedergabe über Spotify Premium ist verbunden.';
+  } else if (hasStreamingScope()) {
+    s.textContent = 'Volle Wiedergabe wird beim Spielstart verbunden. Klappt das nicht (kein Premium o. Ä.), läuft automatisch die Vorschau.';
+  } else {
+    s.textContent = 'Für ganze Titel fehlt die Wiedergabe-Berechtigung – bitte einmal neu anmelden.';
+  }
 }
 
 /* ============ Wiedergabe: Web Playback SDK ============ */
@@ -1142,7 +1234,8 @@ function initSdkPlayer() {
    Diese Position lässt sich seit der API-Umstellung 2024 nicht mehr
    auslesen oder berechnen – über den Embed bekommt man sie aber geschenkt. */
 function usingSdk() {
-  if (game.gameMode === 'sing') return false;
+  if (game.gameMode === 'sing') return false;          // braucht den Vorschau-Ausschnitt
+  if (settings.playback === 'preview') return false;   // vom Nutzer so gewählt
   return sdkReady && !!sdkDeviceId;
 }
 
@@ -1352,11 +1445,13 @@ function ringSync(elapsedSec, playing) {
   ring.base = Math.max(0, elapsedSec);
   ring.baseAt = performance.now();
   ring.playing = !!playing;
+  $('disc').classList.toggle('paused', !ring.playing);   // Platte dreht nur bei Musik
   ringLoop();
 }
 function ringReset() {
   cancelAnimationFrame(ring.raf);
   ring.playing = false; ring.base = 0; ring.baseAt = performance.now();
+  $('disc').classList.add('paused');
   ringSetMax(currentMax());
   setRing(0);
   $('elapsed').textContent = '00:00';
@@ -1465,9 +1560,11 @@ async function runRound(autoplay) {
       ensureEmbed(track.id, () => { if (autoplay && embedController) setTimeout(() => embedController.play(), 400); });
     }
   } else {
-    $('play-hint').textContent = hasStreamingScope()
-      ? 'Aus welchem Jahr ist dieser Song? (30-Sekunden-Vorschau)'
-      : 'Aus welchem Jahr ist dieser Song?';
+    if (game.gameMode !== 'sing') {
+      $('play-hint').textContent = settings.playback === 'preview'
+        ? 'Aus welchem Jahr ist dieser Song? (Spotify-Vorschau)'
+        : 'Aus welchem Jahr ist dieser Song? (Vorschau – volle Wiedergabe nicht verfügbar)';
+    }
     ensureEmbed(track.id, () => { if (autoplay && embedController) setTimeout(() => embedController.play(), 400); });
   }
 }
@@ -1761,6 +1858,8 @@ $('chip-auto').onclick   = () => { settings.auto = !settings.auto; saveSettings(
 $('chip-len').onclick    = () => { settings.len = LEN_STEPS[(LEN_STEPS.indexOf(settings.len) + 1) % LEN_STEPS.length]; saveSettings(); renderChips(); };
 $('chip-start').onclick  = () => { settings.start = settings.start === 'begin' ? 'random' : 'begin'; saveSettings(); renderChips(); };
 $('chip-player').onclick = () => { settings.showPlayer = !settings.showPlayer; saveSettings(); renderChips(); };
+$('pb-full').onclick    = () => { settings.playback = 'full';    saveSettings(); renderPlaybackCards(); };
+$('pb-preview').onclick = () => { settings.playback = 'preview'; saveSettings(); renderPlaybackCards(); };
 $('btn-play').onclick   = togglePlayPause;
 $('btn-reveal').onclick = reveal;
 $('btn-replay').onclick = replayFull;
