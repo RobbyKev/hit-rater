@@ -33,9 +33,43 @@ body {
   overflow-x: hidden; min-height: 100dvh;
 }
 h1, h2, h3 { font-family: var(--font-heading); }
-.glow-bg { position: fixed; border-radius: 50%; filter: blur(100px); z-index: 0; pointer-events: none; }
-.glow-bg.g1 { width: 60vmax; height: 60vmax; background: rgba(139,92,246,.20); top: -25vmax; left: -20vmax; }
-.glow-bg.g2 { width: 50vmax; height: 50vmax; background: rgba(236,72,153,.16); bottom: -20vmax; right: -18vmax; }
+/* Hintergrund-Glows – Farbe passt sich per JS dem Albumcover an */
+.glow-bg {
+  position: fixed; border-radius: 50%; filter: blur(100px); z-index: 0; pointer-events: none;
+  transition: background-color 1.2s ease-in-out;
+}
+.glow-bg.g1 { width: 60vmax; height: 60vmax; background-color: rgba(139,92,246,.20); top: -25vmax; left: -20vmax; }
+.glow-bg.g2 { width: 50vmax; height: 50vmax; background-color: rgba(236,72,153,.16); bottom: -20vmax; right: -18vmax; }
+
+/* ===== Weiche Ansichtswechsel (View Transition API) ===== */
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root) { animation: vtOut .22s ease-in both; }
+  ::view-transition-new(root) { animation: vtIn  .28s ease-out both; }
+}
+@keyframes vtOut { to { opacity: 0; transform: translateY(-8px); } }
+@keyframes vtIn  { from { opacity: 0; transform: translateY(10px); } }
+
+/* ===== Ripple beim Antippen ===== */
+.rippleable { position: relative; overflow: hidden; }
+.ripple {
+  position: absolute; border-radius: 50%; transform: scale(0); pointer-events: none;
+  background: rgba(255,255,255,.35); animation: rippleGrow .55s ease-out forwards;
+}
+@keyframes rippleGrow { to { transform: scale(2.6); opacity: 0; } }
+
+/* ===== Skeleton-Platzhalter ===== */
+.skel {
+  background: linear-gradient(100deg, var(--surface-card) 30%, var(--surface-2) 50%, var(--surface-card) 70%);
+  background-size: 220% 100%; animation: shimmer 1.3s linear infinite; border-radius: 12px;
+}
+@keyframes shimmer { to { background-position: -120% 0; } }
+.skel-card { border: 1px solid rgba(255,255,255,.06); border-radius: 16px; padding: 10px; }
+.skel-card .sq { width: 100%; aspect-ratio: 1; border-radius: 11px; }
+.skel-card .l1 { height: 13px; margin-top: 10px; width: 85%; }
+.skel-card .l2 { height: 10px; margin-top: 7px; width: 55%; }
+.skel-row { display: flex; align-items: center; gap: 11px; padding: 10px; margin-bottom: 8px; }
+.skel-row .av { width: 42px; height: 42px; border-radius: 8px; flex-shrink: 0; }
+.skel-row .ln { height: 12px; flex: 1; }
 .wrap {
   position: relative; z-index: 1; max-width: 520px; margin: 0 auto;
   padding: 20px 16px calc(28px + env(safe-area-inset-bottom));
@@ -443,7 +477,7 @@ code.uri {
       <textarea id="inp-playlist" rows="3" placeholder="https://open.spotify.com/playlist/…
 https://open.spotify.com/playlist/…"></textarea>
       <button class="btn btn-purple" id="btn-load-playlist">Laden</button>
-      <div id="load-spinner" class="spinner hidden"></div>
+      <div id="load-skeleton" class="pack-grid hidden" style="margin-top:14px"></div>
       <div id="load-progress" class="body-sm hidden" style="text-align:center;margin-top:8px"></div>
       <div id="load-err" class="err hidden"></div>
       <p class="body-sm" style="margin-top:12px">💡 Fremde Playlist? In Spotify alle Songs markieren → „Zu Playlist hinzufügen“ → eigene Kopie. Die funktioniert hier.</p>
@@ -586,6 +620,82 @@ const store = {
   del(k) { localStorage.removeItem(k); },
 };
 function buzz(ms = 12) { try { navigator.vibrate?.(ms); } catch {} }
+
+/* ============================================================
+   Optik: Album-Glow, Ripple, Skeletons
+   ============================================================ */
+/* Dominante Coverfarbe ermitteln und die Hintergrund-Glows danach färben.
+   Klappt nur, wenn der Bildserver CORS erlaubt – sonst bleibt es beim
+   Standard-Farbverlauf (stiller Rückfall, kein Fehler). */
+const DEFAULT_GLOW = ['rgba(139,92,246,.20)', 'rgba(236,72,153,.16)'];
+let glowToken = 0;
+function setGlow(c1, c2) {
+  const g1 = document.querySelector('.glow-bg.g1'), g2 = document.querySelector('.glow-bg.g2');
+  if (g1) g1.style.backgroundColor = c1;
+  if (g2) g2.style.backgroundColor = c2;
+}
+function resetGlow() { setGlow(DEFAULT_GLOW[0], DEFAULT_GLOW[1]); }
+function applyAlbumGlow(coverUrl) {
+  const my = ++glowToken;
+  if (!coverUrl) { resetGlow(); return; }
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    if (my !== glowToken) return;                   // inzwischen läuft ein anderer Song
+    try {
+      const n = 10;
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = n;
+      const ctx = cv.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0, n, n);
+      const d = ctx.getImageData(0, 0, n, n).data;
+      let r = 0, g = 0, b = 0, count = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        const [rr, gg, bb] = [d[i], d[i + 1], d[i + 2]];
+        const max = Math.max(rr, gg, bb), min = Math.min(rr, gg, bb);
+        if (max < 28 || min > 232) continue;          // fast Schwarz/Weiß überspringen
+        const weight = 1 + (max - min) / 255 * 2;     // kräftige Farben stärker gewichten
+        r += rr * weight; g += gg * weight; b += bb * weight; count += weight;
+      }
+      if (!count) { resetGlow(); return; }
+      r = Math.round(r / count); g = Math.round(g / count); b = Math.round(b / count);
+      setGlow(`rgba(${r},${g},${b},.30)`, `rgba(${Math.round(b * .8)},${Math.round(r * .7)},${g},.22)`);
+    } catch { resetGlow(); }                          // Canvas „getaint“ → Standardfarben
+  };
+  img.onerror = () => { if (my === glowToken) resetGlow(); };
+  img.src = coverUrl;
+}
+
+/* Wellenartiger Ripple auf Buttons und Kacheln */
+document.addEventListener('pointerdown', (e) => {
+  if (reducedMotion) return;
+  const el = e.target.closest('.btn, .chip, .pack-card, .mode-card, .icon-btn, .mylist');
+  if (!el || el.disabled) return;
+  const rect = el.getBoundingClientRect();
+  const size = Math.max(rect.width, rect.height);
+  const span = document.createElement('span');
+  span.className = 'ripple';
+  span.style.width = span.style.height = size + 'px';
+  span.style.left = (e.clientX - rect.left - size / 2) + 'px';
+  span.style.top  = (e.clientY - rect.top  - size / 2) + 'px';
+  const hadPos = getComputedStyle(el).position !== 'static';
+  el.classList.add('rippleable');
+  if (!hadPos) el.style.position = 'relative';
+  el.appendChild(span);
+  setTimeout(() => span.remove(), 600);
+}, { passive: true });
+
+/* Skeleton-Platzhalter */
+function skeletonCards(n = 4) {
+  return Array.from({ length: n }, () =>
+    '<div class="skel-card"><div class="skel sq"></div><div class="skel l1"></div><div class="skel l2"></div></div>'
+  ).join('');
+}
+function skeletonRows(n = 5) {
+  return Array.from({ length: n }, () =>
+    '<div class="skel-row"><div class="skel av"></div><div class="skel ln"></div></div>'
+  ).join('');
+}
 function fmtTime(sec) {
   const s = Math.max(0, Math.floor(sec));
   return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
@@ -594,7 +704,16 @@ function fmtTime(sec) {
 /* ============ Views ============ */
 const VIEWS = ['view-splash', 'view-setup', 'view-login', 'view-modes', 'view-packs',
                'view-settings', 'view-game', 'view-words'];
-function show(view) { VIEWS.forEach(v => $(v).classList.toggle('hidden', v !== view)); }
+const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+function show(view) {
+  const apply = () => {
+    VIEWS.forEach(v => $(v).classList.toggle('hidden', v !== view));
+    window.scrollTo(0, 0);
+  };
+  // Weiche Überblendung, wo der Browser sie unterstützt
+  if (document.startViewTransition && !reducedMotion) document.startViewTransition(apply);
+  else apply();
+}
 function showErr(id, msg) { const el = $(id); el.textContent = msg; el.classList.remove('hidden'); }
 function hideErr(id) { $(id).classList.add('hidden'); }
 
@@ -851,50 +970,64 @@ function renderPacks() {
     grid.appendChild(card);
   });
 }
+/* Ein einziger Schutzmantel um den ganzen Vorgang: egal wo es klemmt
+   (Metadaten, Songliste oder die lange Jahres-Prüfung), es kommt immer ein
+   Ergebnisobjekt zurück statt einer Ausnahme – sonst bliebe die aufrufende
+   Schleife stehen und der Lade-Button dauerhaft gesperrt. */
 async function addPlaylistById(id, onProgress) {
-  let meta;
-  try { meta = await api('/playlists/' + id); }
-  catch (e) { return { ok: false, error: e.message }; }
-  let tracks;
-  try { tracks = await fetchPlaylistTracks(id); }
-  catch (e) { return { ok: false, error: `„${meta.name}“: ${e.message}` }; }
-  if (!tracks.length) {
-    return { ok: false, error: `„${meta.name}“: keine Songs gefunden. Bei fremden Playlists liefert Spotify keine Songliste – erstelle eine eigene Kopie in deinem Konto.` };
+  let meta = null;
+  try {
+    meta = await api('/playlists/' + id);
+    const tracks = await fetchPlaylistTracks(id);
+    if (!tracks.length) {
+      return { ok: false, error: `„${meta.name}“: keine Songs gefunden. Bei fremden Playlists liefert Spotify keine Songliste – erstelle eine eigene Kopie in deinem Konto.` };
+    }
+    if (settings.fixYears) {
+      await fixYears(tracks, (done, total) =>
+        onProgress?.(`Prüfe Jahreszahlen … ${done}/${total}`));
+    }
+    const cover = meta.images?.length ? meta.images[0].url : (tracks.find(t => t.cover)?.cover || '');
+    const packs = getPacks();
+    const idx = packs.findIndex(p => p.id === id);
+    const ids = new Set(tracks.map(t => t.id));
+    const prevPlayed = idx >= 0 ? packs[idx].played.filter(tid => ids.has(tid)) : [];
+    const pack = { id, name: meta.name, cover, tracks, played: prevPlayed };
+    if (idx >= 0) packs[idx] = pack; else packs.push(pack);
+    savePacks(packs);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (meta?.name ? `„${meta.name}“: ` : '') + (e?.message || 'Unbekannter Fehler') };
   }
-  if (settings.fixYears) {
-    await fixYears(tracks, (done, total) =>
-      onProgress?.(`Prüfe Jahreszahlen … ${done}/${total}`));
-  }
-  const cover = meta.images?.length ? meta.images[0].url : (tracks.find(t => t.cover)?.cover || '');
-  const packs = getPacks();
-  const idx = packs.findIndex(p => p.id === id);
-  const ids = new Set(tracks.map(t => t.id));
-  const prevPlayed = idx >= 0 ? packs[idx].played.filter(tid => ids.has(tid)) : [];
-  const pack = { id, name: meta.name, cover, tracks, played: prevPlayed };
-  if (idx >= 0) packs[idx] = pack; else packs.push(pack);
-  savePacks(packs);
-  return { ok: true };
 }
 async function loadPlaylists(raw) {
   const lines = raw.split('\n').map(s => s.trim()).filter(Boolean);
   if (!lines.length) { showErr('load-err', 'Bitte mindestens einen Playlist-Link einfügen.'); return; }
   hideErr('load-err');
-  $('load-spinner').classList.remove('hidden');
+  const skel = $('load-skeleton');
+  skel.innerHTML = skeletonCards(Math.min(4, lines.length * 2));
+  skel.classList.remove('hidden');
   $('btn-load-playlist').disabled = true;
   const prog = $('load-progress'); prog.classList.remove('hidden');
   const errors = []; let okCount = 0;
-  for (let i = 0; i < lines.length; i++) {
-    const prefix = lines.length > 1 ? `Playlist ${i + 1}/${lines.length}: ` : '';
-    prog.textContent = prefix + 'Lade Songs …';
-    const id = parsePlaylistId(lines[i]);
-    if (!id) { errors.push(`„${lines[i]}“ ist kein gültiger Playlist-Link.`); continue; }
-    const res = await addPlaylistById(id, (msg) => { prog.textContent = prefix + msg; });
-    if (res.ok) okCount++; else errors.push(res.error);
+  try {
+    for (let i = 0; i < lines.length; i++) {
+      const prefix = lines.length > 1 ? `Playlist ${i + 1}/${lines.length}: ` : '';
+      prog.textContent = prefix + 'Lade Songs …';
+      const id = parsePlaylistId(lines[i]);
+      if (!id) { errors.push(`„${lines[i]}“ ist kein gültiger Playlist-Link.`); continue; }
+      const res = await addPlaylistById(id, (msg) => { prog.textContent = prefix + msg; });
+      if (res.ok) okCount++; else errors.push(res.error);
+    }
+  } catch (e) {
+    errors.push(e?.message || 'Unerwarteter Fehler beim Laden.');
+  } finally {
+    // Aufräumen passiert IMMER – auch wenn oben etwas Unvorhergesehenes schiefgeht
+    renderPacks();
+    skel.classList.add('hidden');
+    skel.innerHTML = '';
+    prog.classList.add('hidden');
+    $('btn-load-playlist').disabled = false;
   }
-  renderPacks();
-  $('load-spinner').classList.add('hidden');
-  prog.classList.add('hidden');
-  $('btn-load-playlist').disabled = false;
   if (errors.length) {
     showErr('load-err', (okCount ? `${okCount} von ${lines.length} geladen.\n` : '') + errors.join('\n'));
   } else {
@@ -904,7 +1037,7 @@ async function loadPlaylists(raw) {
 }
 async function loadMyPlaylists() {
   const el = $('my-playlists');
-  el.innerHTML = '<div class="spinner"></div>';
+  el.innerHTML = skeletonRows(5);
   try {
     let items = [], url = '/me/playlists?limit=50', guard = 0;
     while (url && guard++ < 10) {
@@ -958,25 +1091,43 @@ function renderChips() {
 
 /* ============ Wiedergabe: Web Playback SDK ============ */
 let sdkPlayer = null, sdkDeviceId = null, sdkReady = false, sdkFailed = false;
-let sdkActivated = false;
+let sdkActivated = false, sdkAuthRetries = 0;
 window.onSpotifyWebPlaybackSDKReady = () => { initSdkPlayer(); };
+// Falls das SDK-Skript schneller da war als dieser Code, ist der Callback
+// bereits gefeuert – dann direkt selbst initialisieren.
+if (window.Spotify) initSdkPlayer();
 
 function initSdkPlayer() {
   if (sdkPlayer || !window.Spotify || !hasStreamingScope()) return;
   sdkPlayer = new Spotify.Player({
     name: 'Snippet',
-    getOAuthToken: async (cb) => { const t = await getToken(); if (t) cb(t); },
+    // cb MUSS in jedem Fall aufgerufen werden – sonst wartet das SDK ewig
+    // und meldet weder „ready" noch einen Fehler.
+    getOAuthToken: async (cb) => {
+      let t = null;
+      try { t = await getToken(); } catch {}
+      cb(t || '');
+    },
     volume: 0.8,
   });
   sdkPlayer.addListener('ready', ({ device_id }) => {
-    sdkDeviceId = device_id; sdkReady = true; sdkFailed = false;
+    sdkDeviceId = device_id; sdkReady = true; sdkFailed = false; sdkAuthRetries = 0;
     if (!$('view-settings').classList.contains('hidden')) renderChips();
   });
   sdkPlayer.addListener('not_ready', () => { sdkReady = false; });
   ['initialization_error', 'authentication_error', 'account_error', 'playback_error'].forEach(ev => {
-    sdkPlayer.addListener(ev, ({ message }) => {
+    sdkPlayer.addListener(ev, async ({ message }) => {
       console.warn('[Snippet] SDK ' + ev + ':', message);
-      if (ev !== 'playback_error') { sdkFailed = true; sdkReady = false; }
+      if (ev === 'playback_error') return;                 // einzelner Track, nicht die Sitzung
+      if (ev === 'authentication_error' && sdkAuthRetries < 2) {
+        // Abgelaufenes Token ist heilbar: erneuern und neu verbinden,
+        // statt dauerhaft auf die 30-Sekunden-Vorschau zurückzufallen.
+        sdkAuthRetries++;
+        sdkReady = false;
+        const fresh = await getToken();
+        if (fresh) { setTimeout(() => sdkPlayer.connect(), 400 * sdkAuthRetries); return; }
+      }
+      sdkFailed = true; sdkReady = false;
     });
   });
   sdkPlayer.addListener('player_state_changed', (state) => {
@@ -1262,7 +1413,24 @@ async function startGame(packIndex) {
   startSdkPoll();
   nextRound(true);
 }
+let roundBusy = false;
 async function nextRound(autoplay = false) {
+  // Schnelles Doppeltippen oder ein gleichzeitig auslösendes Auto-Weiter
+  // würden sonst zwei Runden parallel starten – mit doppeltem Ton.
+  if (roundBusy) return;
+  roundBusy = true;
+  try {
+    await runRound(autoplay);
+  } finally {
+    roundBusy = false;
+  }
+}
+async function runRound(autoplay) {
+  // Laufende Wiedergabe zuerst anhalten, damit sich nichts überlagert
+  try {
+    if (sdkPlayer && sdkReady) await sdkPlayer.pause();
+    if (embedController) embedController.pause();
+  } catch {}
   const packs = getPacks(), pack = packs[game.packIndex];
   if (!pack) { openPacks(); return; }
   const track = pickNextTrack(pack);
@@ -1282,6 +1450,7 @@ async function nextRound(autoplay = false) {
   $('game-round').textContent = `Runde ${game.round}` + (left > 0 ? ` · ${left} übrig` : '');
   $('game-pack').textContent = pack.name;
   renderModeUi();
+  applyAlbumGlow(track.cover);      // Hintergrund nimmt die Farbe des Covers an
   ringReset();
   playbackStartMs = 0;
 
@@ -1495,6 +1664,8 @@ function leaveGame() {
   if (usingSdk() && sdkPlayer) sdkPlayer.pause();
   else if (embedController) embedController.pause();
   inGame = false; releaseWakeLock(); ringReset(); stopSdkPoll();
+  cancelAnimationFrame(ring.raf);
+  resetGlow();
   openPacks();
 }
 function openPacks() {
