@@ -201,6 +201,20 @@ code.uri {
   box-shadow: 0 4px 22px rgba(0,242,254,.42); }
 .mode-card.mic .ico { background: linear-gradient(145deg, #00F2FE, #4FACFE); color: #04121f; }
 
+/* ===== Weitersingen ===== */
+.mode-card.sing .ico { background: linear-gradient(145deg, #F59E0B, #EC4899); }
+.sing-banner {
+  text-align: center; padding: 26px 20px; border-radius: 20px; margin-bottom: 14px;
+  background: linear-gradient(150deg, #2a1630, #1E1E24);
+  border: 1px solid rgba(245,158,11,.45); box-shadow: 0 0 34px rgba(245,158,11,.22);
+  animation: pop .35s cubic-bezier(.2,1.5,.4,1);
+}
+.sing-banner .mic { font-size: 3.2rem; animation: micShake 1.4s ease-in-out infinite; }
+@keyframes micShake { 25% { transform: rotate(-9deg); } 75% { transform: rotate(9deg); } }
+.sing-banner .txt { font-family: var(--font-heading); font-weight: 800; font-size: 1.9rem;
+  color: var(--amber); margin-top: 8px; }
+.sing-banner .sub { font-size: .84rem; color: var(--text-muted); margin-top: 6px; }
+
 /* ===== Höher/Tiefer ===== */
 .ref-box {
   background: var(--surface-card); border: 1px solid rgba(255,255,255,.08);
@@ -362,6 +376,13 @@ code.uri {
         <span class="d">Ein Wort erscheint – wer zuerst ein Lied damit singt, gewinnt die Runde. Ohne Spotify spielbar.</span>
       </span>
     </button>
+    <button class="mode-card sing" id="mode-sing">
+      <span class="ico">🎙️</span>
+      <span>
+        <span class="t">Weitersingen</span>
+        <span class="d">Song läuft, du stoppst mitten im Text – die Runde muss weitersingen. Danach hört ihr genau dort weiter.</span>
+      </span>
+    </button>
   </div>
 
   <!-- ============ GRAB THE MIC ============ -->
@@ -507,6 +528,12 @@ https://open.spotify.com/playlist/…"></textarea>
       <div class="hint" id="play-hint">Aus welchem Jahr ist dieser Song?</div>
     </div>
 
+    <div class="sing-banner hidden" id="sing-banner">
+      <div class="mic">🎙️</div>
+      <div class="txt">Weitersingen!</div>
+      <div class="sub">Wer bringt die nächste Zeile?</div>
+    </div>
+
     <div id="reveal-box" class="reveal-card hidden"></div>
     <!-- außerhalb von .play-zone: display:none würde die Wiedergabe abbrechen -->
     <div id="player-box"></div>
@@ -516,6 +543,8 @@ https://open.spotify.com/playlist/…"></textarea>
         <button class="btn btn-purple" id="btn-older">⬇️ Älter</button>
         <button class="btn btn-pink" id="btn-newer">⬆️ Jünger</button>
       </div>
+      <button class="btn btn-cyan hidden" id="btn-cut">✋ Stopp – weitersingen!</button>
+      <button class="btn btn-cyan hidden" id="btn-resume">▶️ Weiterhören zur Kontrolle</button>
       <button class="btn btn-pink" id="btn-reveal">🃏 Jetzt auflösen</button>
       <button class="btn btn-ghost hidden" id="btn-replay">🔁 Ganzen Song hören</button>
       <button class="btn btn-primary hidden" id="btn-next">Weiter ›</button>
@@ -957,7 +986,14 @@ function initSdkPlayer() {
   });
   sdkPlayer.connect();
 }
-function usingSdk() { return sdkReady && !!sdkDeviceId; }
+/* Im Weitersingen-Modus wird bewusst der Vorschau-Player benutzt: Spotify
+   wählt dort selbst einen markanten Ausschnitt (praktisch nie ab 0:00).
+   Diese Position lässt sich seit der API-Umstellung 2024 nicht mehr
+   auslesen oder berechnen – über den Embed bekommt man sie aber geschenkt. */
+function usingSdk() {
+  if (game.gameMode === 'sing') return false;
+  return sdkReady && !!sdkDeviceId;
+}
 
 /* Startposition bestimmen (0 oder zufällig im Song) */
 function startPositionMs(track) {
@@ -1001,7 +1037,9 @@ function ensureEmbed(trackId, cb) {
       if (Math.abs(elapsed - ringNow()) > 0.4 || isPaused === ring.playing) {
         ringSync(elapsed, !isPaused);
       }
-      if (settings.len && !game.fullPlay && !isPaused && elapsed >= settings.len) {
+      // Im Weitersingen-Modus bestimmt der Game-Master das Ende, nicht der Timer
+      if (settings.len && !game.fullPlay && game.gameMode !== 'sing'
+          && !isPaused && elapsed >= settings.len) {
         ctrl.pause(); ringSync(settings.len, false);
       }
       if (!isBuffering && duration > 0 && position > 0 && position / duration >= 0.995 && !game.trackEnded) {
@@ -1111,7 +1149,7 @@ function startWordGame() {
 
 /* ============ Spiel ============ */
 let game = { packIndex: -1, current: null, revealed: false, trackEnded: false,
-             gameMode: 'classic', ref: null, streak: 0, round: 0, fullPlay: false };
+             gameMode: 'classic', ref: null, streak: 0, round: 0, fullPlay: false, cutAt: 0 };
 let inGame = false, wakeLock = null;
 let playbackStartMs = 0;
 let sdkPoll = null;
@@ -1139,6 +1177,7 @@ function setRing(fraction) {
 function ringSetMax(sec) { ring.max = Math.max(1, sec || 30); }
 function currentMax() {
   if (game.fullPlay) return (game.current?.dur || 180000) / 1000;
+  if (game.gameMode === 'sing') return 30;      // Vorschau-Clip ist 30 s lang
   return settings.len || (game.current?.dur ? game.current.dur / 1000 : 180);
 }
 function ringNow() {
@@ -1212,6 +1251,7 @@ async function startGame(packIndex) {
   game.streak = 0;
   game.round = 0;          // Rundenzähler beginnt bei jeder Partie neu
   game.fullPlay = false;
+  game.cutAt = 0;
   inGame = true;
   acquireWakeLock();
   show('view-game');
@@ -1230,6 +1270,7 @@ async function nextRound(autoplay = false) {
   game.revealed = false;
   game.trackEnded = false;
   game.fullPlay = false;
+  game.cutAt = 0;
   game.round = (game.round || 0) + 1;
   pack.played.push(track.id);
   savePacks(packs);
@@ -1304,14 +1345,51 @@ async function replayFull() {
     setTimeout(() => { embedController.play(); ringSync(0, true); }, 400);
   }
 }
+/* --- Weitersingen: Song von Hand mitten im Text abschneiden --- */
+function cutSong() {
+  buzz(35);
+  if (embedController) embedController.pause();
+  else if (sdkPlayer) sdkPlayer.pause();
+  game.cutAt = ringNow();                       // Schnittstelle merken
+  ringSync(game.cutAt, false);
+  $('play-zone').classList.add('hidden');
+  $('sing-banner').classList.remove('hidden');
+  $('btn-cut').classList.add('hidden');
+  $('btn-resume').classList.remove('hidden');
+  $('btn-reveal').classList.remove('hidden');
+}
+/* --- Weitersingen: genau ab der Schnittstelle weiterhören --- */
+function resumeAfterCut() {
+  buzz();
+  $('sing-banner').classList.add('hidden');
+  $('play-zone').classList.remove('hidden');
+  $('play-hint').textContent = 'Weiter ab der Schnittstelle – richtig gesungen?';
+  $('btn-resume').classList.add('hidden');
+  if (embedController) {
+    try { embedController.seek(game.cutAt); } catch {}
+    embedController.play();
+    ringSync(game.cutAt, true);
+  } else if (sdkPlayer) {
+    sdkPlayer.resume();
+    ringSync(game.cutAt, true);
+  }
+}
 /* --- Modusabhängige Oberfläche --- */
 function renderModeUi() {
   const hl = game.gameMode === 'highlow';
+  const sing = game.gameMode === 'sing';
   const hasRef = hl && !!game.ref;
   $('ref-box').classList.toggle('hidden', !hasRef);
   $('hl-buttons').classList.toggle('hidden', !hasRef);
-  $('btn-reveal').classList.toggle('hidden', hasRef);
+  $('sing-banner').classList.add('hidden');
+  $('btn-cut').classList.toggle('hidden', !sing);
+  $('btn-resume').classList.add('hidden');
+  $('btn-reveal').classList.toggle('hidden', hasRef || sing);
   $('streak-pill').classList.toggle('hidden', !hl);
+  if (sing) {
+    $('play-hint').textContent = 'Mithören – und im richtigen Moment „Stopp" drücken.';
+    return;
+  }
   if (hl) $('streak-pill').textContent = `🔥 ${game.streak}` + (settings.bestStreak ? ` · Best ${settings.bestStreak}` : '');
   if (hasRef) {
     $('ref-year').textContent = game.ref.year;
@@ -1382,6 +1460,9 @@ function revealTrack(verdict) {
   $('play-zone').classList.add('hidden');
   $('btn-reveal').classList.add('hidden');
   $('hl-buttons').classList.add('hidden');
+  $('btn-cut').classList.add('hidden');
+  $('btn-resume').classList.add('hidden');
+  $('sing-banner').classList.add('hidden');
   $('btn-replay').classList.remove('hidden');
   $('btn-next').classList.remove('hidden');
   // Im Höher/Tiefer-Modus wird der aufgedeckte Song zur neuen Referenz
@@ -1478,6 +1559,9 @@ $('btn-packs-back').onclick = () => show('view-modes');
 $('mode-classic').onclick = () => chooseMode('classic');
 $('mode-highlow').onclick = () => chooseMode('highlow');
 $('mode-words').onclick   = () => chooseMode('words');
+$('mode-sing').onclick    = () => chooseMode('sing');
+$('btn-cut').onclick      = cutSong;
+$('btn-resume').onclick   = resumeAfterCut;
 $('btn-word-next').onclick = nextWord;
 $('btn-words-back').onclick = () => { stopWordTimer(); releaseWakeLock(); show('view-modes'); };
 $('btn-word-settings').onclick = openSettings;
