@@ -1233,10 +1233,14 @@ function initSdkPlayer() {
    wählt dort selbst einen markanten Ausschnitt (praktisch nie ab 0:00).
    Diese Position lässt sich seit der API-Umstellung 2024 nicht mehr
    auslesen oder berechnen – über den Embed bekommt man sie aber geschenkt. */
+function sdkAvailable() { return sdkReady && !!sdkDeviceId; }
 function usingSdk() {
+  // „Ganzen Song hören" braucht die volle Wiedergabe – auch dann, wenn sonst
+  // bewusst die 30-Sekunden-Vorschau eingestellt ist.
+  if (game.forceSdk && sdkAvailable()) return true;
   if (game.gameMode === 'sing') return false;          // braucht den Vorschau-Ausschnitt
   if (settings.playback === 'preview') return false;   // vom Nutzer so gewählt
-  return sdkReady && !!sdkDeviceId;
+  return sdkAvailable();
 }
 
 /* Startposition bestimmen (0 oder zufällig im Song) */
@@ -1250,8 +1254,8 @@ function startPositionMs(track) {
   if (latest <= earliest) return 0;
   return Math.floor(earliest + Math.random() * (latest - earliest));
 }
-async function sdkPlayTrack(track) {
-  const pos = startPositionMs(track);
+async function sdkPlayTrack(track, forcePos = null) {
+  const pos = forcePos ?? startPositionMs(track);
   playbackStartMs = pos;
   await api(`/me/player/play?device_id=${sdkDeviceId}`, {
     method: 'PUT',
@@ -1393,7 +1397,8 @@ function startWordGame() {
 
 /* ============ Spiel ============ */
 let game = { packIndex: -1, current: null, revealed: false, trackEnded: false,
-             gameMode: 'classic', ref: null, streak: 0, round: 0, fullPlay: false, cutAt: 0 };
+             gameMode: 'classic', ref: null, streak: 0, round: 0,
+             fullPlay: false, forceSdk: false, cutAt: 0 };
 let inGame = false, wakeLock = null;
 let playbackStartMs = 0;
 let sdkPoll = null;
@@ -1497,6 +1502,7 @@ async function startGame(packIndex) {
   game.streak = 0;
   game.round = 0;          // Rundenzähler beginnt bei jeder Partie neu
   game.fullPlay = false;
+  game.forceSdk = false;
   game.cutAt = 0;
   inGame = true;
   acquireWakeLock();
@@ -1533,6 +1539,7 @@ async function runRound(autoplay) {
   game.revealed = false;
   game.trackEnded = false;
   game.fullPlay = false;
+  game.forceSdk = false;          // ab der nächsten Runde gilt wieder die Einstellung
   game.cutAt = 0;
   game.round = (game.round || 0) + 1;
   pack.played.push(track.id);
@@ -1586,7 +1593,10 @@ async function togglePlayPause() {
   }
   if (embedController) embedController.togglePlay();
 }
-/* --- Song nach der Auflösung noch einmal komplett von vorn hören --- */
+/* --- Song nach der Auflösung noch einmal von vorn hören ---
+   Ist Premium-Wiedergabe verfügbar, wird sie hier auch dann benutzt, wenn
+   sonst die 30-Sekunden-Vorschau eingestellt ist – sonst könnte der Knopf
+   sein Versprechen („ganzer Song") gar nicht einlösen. */
 async function replayFull() {
   const t = game.current;
   if (!t) return;
@@ -1594,22 +1604,29 @@ async function replayFull() {
   game.fullPlay = true;
   game.trackEnded = false;
   playbackStartMs = 0;
-  ringSetMax(currentMax());
   $('play-zone').classList.remove('hidden');
-  $('play-hint').textContent = `🔁 ${t.title} – ${t.artist} (ganzer Song)`;
   $('btn-replay').classList.add('hidden');
-  if (usingSdk() && sdkPlayer) {
+
+  if (sdkAvailable() && sdkPlayer) {
+    game.forceSdk = true;                       // Vorschau-Sperre für diese Wiedergabe aufheben
+    try { embedController?.pause(); } catch {}
+    if (!sdkActivated) { try { await sdkPlayer.activateElement(); sdkActivated = true; } catch {} }
+    ringSetMax(currentMax());
+    $('play-hint').textContent = `🔁 ${t.title} – ${t.artist} (ganzer Song)`;
     try {
-      await sdkPlayer.seek(0);
-      await sdkPlayer.resume();
-    } catch {
-      await sdkPlayTrack({ ...t, dur: t.dur });   // falls der Track nicht mehr geladen ist
+      await sdkPlayTrack(t, 0);                 // von Sekunde 0, unabhängig vom Startpunkt
+      ringSync(0, true);
+    } catch (e) {
+      game.forceSdk = false;
+      $('play-hint').textContent = 'Volle Wiedergabe fehlgeschlagen – Vorschau läuft. (' + e.message + ')';
+      ensureEmbed(t.id, () => setTimeout(() => { embedController.play(); ringSync(0, true); }, 400));
     }
-    ringSync(0, true);
-  } else if (embedController) {
-    embedController.loadUri('spotify:track:' + t.id);
-    setTimeout(() => { embedController.play(); ringSync(0, true); }, 400);
+    return;
   }
+  // Ohne Premium-Wiedergabe bleibt nur der Vorschau-Ausschnitt
+  ringSetMax(currentMax());
+  $('play-hint').textContent = `🔁 ${t.title} – ${t.artist} (Vorschau-Ausschnitt)`;
+  ensureEmbed(t.id, () => setTimeout(() => { embedController.play(); ringSync(0, true); }, 400));
 }
 /* --- Weitersingen: Song von Hand mitten im Text abschneiden --- */
 function cutSong() {
@@ -1729,6 +1746,7 @@ function revealTrack(verdict) {
   $('btn-cut').classList.add('hidden');
   $('btn-resume').classList.add('hidden');
   $('sing-banner').classList.add('hidden');
+  $('btn-replay').textContent = sdkAvailable() ? '🔁 Ganzen Song hören' : '🔁 Ausschnitt nochmal hören';
   $('btn-replay').classList.remove('hidden');
   $('btn-next').classList.remove('hidden');
   // Im Höher/Tiefer-Modus wird der aufgedeckte Song zur neuen Referenz
