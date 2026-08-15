@@ -174,6 +174,33 @@ code.uri {
 .mode-card .t { font-family: var(--font-heading); font-weight: 700; font-size: 1rem; }
 .mode-card .d { font-size: .78rem; color: var(--text-muted); margin-top: 3px; line-height: 1.45; }
 
+/* ===== Grab the Mic (eigene Akzentfarben laut Konzept) ===== */
+#view-words { --mic-cyan: #00F2FE; --mic-blue: #4FACFE; }
+.word-stage { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.word-card {
+  width: 100%; border-radius: 24px; padding: 44px 22px; text-align: center;
+  background: linear-gradient(150deg, #101a2e 0%, #0F172A 55%, #16203a 100%);
+  border: 1px solid rgba(0,242,254,.35);
+  box-shadow: 0 0 44px rgba(0,242,254,.22);
+  animation: pop .35s cubic-bezier(.2,1.5,.4,1);
+}
+.word-card .kicker { font-size: .74rem; letter-spacing: 2px; text-transform: uppercase;
+  color: var(--mic-cyan); font-weight: 700; }
+.word-card .word {
+  font-family: var(--font-heading); font-weight: 800; color: #FFFFFF;
+  font-size: clamp(2.4rem, 13vw, 4rem); line-height: 1.1; margin: 14px 0 10px;
+  overflow-wrap: break-word; text-shadow: 0 0 26px rgba(79,172,254,.55);
+}
+.word-card .lang { font-size: .78rem; color: var(--text-muted); }
+.word-count { font-size: .78rem; color: var(--text-muted); text-align: center; margin-top: 14px; }
+.word-timer { font-family: var(--font-mono); font-weight: 700; font-size: 2.4rem;
+  color: var(--mic-cyan); text-align: center; margin-top: 18px; font-variant-numeric: tabular-nums; }
+.word-timer.out { color: var(--primary-glow); animation: glowPulse .6s ease-in-out infinite alternate; }
+@keyframes glowPulse { to { transform: scale(1.08); } }
+.btn-cyan { background: linear-gradient(135deg, #00F2FE, #4FACFE); color: #04121f;
+  box-shadow: 0 4px 22px rgba(0,242,254,.42); }
+.mode-card.mic .ico { background: linear-gradient(145deg, #00F2FE, #4FACFE); color: #04121f; }
+
 /* ===== Höher/Tiefer ===== */
 .ref-box {
   background: var(--surface-card); border: 1px solid rgba(255,255,255,.08);
@@ -226,8 +253,9 @@ code.uri {
 .ring-wrap { position: relative; width: 232px; height: 232px; }
 .ring-wrap svg { position: absolute; inset: 0; transform: rotate(-90deg); }
 .ring-track { fill: none; stroke: rgba(255,255,255,.07); stroke-width: 7; }
+/* keine CSS-Transition: der Ring wird pro Bild neu gezeichnet */
 .ring-prog  { fill: none; stroke: url(#ringGrad); stroke-width: 7; stroke-linecap: round;
-  filter: drop-shadow(0 0 7px rgba(236,72,153,.8)); transition: stroke-dashoffset .25s linear; }
+  filter: drop-shadow(0 0 7px rgba(236,72,153,.8)); }
 .play-core {
   position: absolute; inset: 30px; border-radius: 50%; border: none; cursor: pointer;
   background: linear-gradient(145deg, var(--accent-purple), var(--primary-glow));
@@ -327,6 +355,38 @@ code.uri {
         <span class="d">Kam der Song vor oder nach dem letzten raus? Wie lang wird eure Serie?</span>
       </span>
     </button>
+    <button class="mode-card mic" id="mode-words">
+      <span class="ico">🎤</span>
+      <span>
+        <span class="t">Grab the Mic</span>
+        <span class="d">Ein Wort erscheint – wer zuerst ein Lied damit singt, gewinnt die Runde. Ohne Spotify spielbar.</span>
+      </span>
+    </button>
+  </div>
+
+  <!-- ============ GRAB THE MIC ============ -->
+  <div id="view-words" class="hidden">
+    <div class="game-head">
+      <button class="icon-btn" id="btn-words-back">←</button>
+      <span class="round-pill" id="word-round"></span>
+      <button class="icon-btn" id="btn-word-settings" title="Einstellungen">⚙️</button>
+    </div>
+
+    <div class="word-stage">
+      <div class="word-card" id="word-card">
+        <div class="kicker">Singt ein Lied mit</div>
+        <div class="word" id="word-text">Bereit?</div>
+        <div class="lang" id="word-lang"></div>
+      </div>
+      <div class="word-timer hidden" id="word-timer"></div>
+      <div class="word-count" id="word-count"></div>
+    </div>
+
+    <div class="chips" style="justify-content:center;margin-bottom:12px">
+      <button class="chip" id="chip-wordlang">Sprache: Beide</button>
+      <button class="chip" id="chip-wordtimer">Timer: Aus</button>
+    </div>
+    <button class="btn btn-cyan" id="btn-word-next">🎤 Nächstes Wort</button>
   </div>
 
   <!-- ============ PACK-AUSWAHL ============ -->
@@ -457,6 +517,7 @@ https://open.spotify.com/playlist/…"></textarea>
         <button class="btn btn-pink" id="btn-newer">⬆️ Jünger</button>
       </div>
       <button class="btn btn-pink" id="btn-reveal">🃏 Jetzt auflösen</button>
+      <button class="btn btn-ghost hidden" id="btn-replay">🔁 Ganzen Song hören</button>
       <button class="btn btn-primary hidden" id="btn-next">Weiter ›</button>
     </div>
   </div>
@@ -502,7 +563,8 @@ function fmtTime(sec) {
 }
 
 /* ============ Views ============ */
-const VIEWS = ['view-splash', 'view-setup', 'view-login', 'view-modes', 'view-packs', 'view-settings', 'view-game'];
+const VIEWS = ['view-splash', 'view-setup', 'view-login', 'view-modes', 'view-packs',
+               'view-settings', 'view-game', 'view-words'];
 function show(view) { VIEWS.forEach(v => $(v).classList.toggle('hidden', v !== view)); }
 function showErr(id, msg) { const el = $(id); el.textContent = msg; el.classList.remove('hidden'); }
 function hideErr(id) { $(id).classList.add('hidden'); }
@@ -840,7 +902,7 @@ async function loadMyPlaylists() {
 /* ============ Einstellungen ============ */
 let settings = Object.assign(
   { mode: 'random', auto: false, showPlayer: false, len: 30, start: 'begin',
-    fixYears: true, mbAlways: false, bestStreak: 0 },
+    fixYears: true, mbAlways: false, bestStreak: 0, wordLang: 'both', wordTimer: 0 },
   store.get(LS.settings, {})
 );
 function saveSettings() { store.set(LS.settings, settings); }
@@ -933,22 +995,125 @@ function ensureEmbed(trackId, cb) {
       const { position, duration, isPaused, isBuffering } = e.data;
       $('btn-play').textContent = isPaused ? '▶' : '❚❚';
       $('btn-play').classList.toggle('playing', !isPaused);
-      if (isPaused) ringPause(); else ringPlay();
+      // Der Embed liefert Millisekunden; zur Sicherheit anhand der Dauer erkennen
+      const div = duration > 3600 ? 1000 : 1;
+      const elapsed = position / div;
+      if (Math.abs(elapsed - ringNow()) > 0.4 || isPaused === ring.playing) {
+        ringSync(elapsed, !isPaused);
+      }
+      if (settings.len && !game.fullPlay && !isPaused && elapsed >= settings.len) {
+        ctrl.pause(); ringSync(settings.len, false);
+      }
       if (!isBuffering && duration > 0 && position > 0 && position / duration >= 0.995 && !game.trackEnded) {
         game.trackEnded = true;
-        if (settings.auto && inGame) setTimeout(() => nextRound(true), 900);
+        if (settings.auto && inGame && !game.fullPlay) setTimeout(() => nextRound(true), 900);
       }
     });
     cb && cb();
   });
 }
 
+/* ============================================================
+   Grab the Mic – Wortkarten
+   Braucht weder Spotify noch Login: Ein Wort erscheint, wer zuerst
+   ein Lied damit singt, gewinnt die Runde.
+   ============================================================ */
+const WORDS_DE = [
+  'Herz','Liebe','Zeit','Nacht','Tag','Tanz','Sonne','Regen','Sterne','Himmel',
+  'Traum','Feuer','Wind','Meer','Straße','Stadt','Leben','Welt','Augen','Hand',
+  'Kind','Freund','Weg','Haus','Sommer','Winter','Morgen','Abend','Musik','Lied',
+  'Stimme','Gold','Schnee','Blume','Vogel','Engel','Teufel','König','Lachen','Weinen',
+  'Küssen','Warten','Fliegen','Laufen','Bleiben','Glück','Schmerz','Angst','Mut','Kraft',
+  'Hoffnung','Wahrheit','Lüge','Geld','Auto','Telefon','Brief','Wort','Name','Jahr',
+  'Stunde','Immer','Nie','Wieder','Zusammen','Allein','Frei','Wild','Jung','Alt',
+  'Schön','Dunkel','Kalt','Warm','Rot','Blau','Schwarz','Weiß','Feuerwerk','Sehnsucht',
+  'Heimat','Mond','Sand','Wolken','Tränen','Lippen','Haare','Seele','Himmelblau','Sommernacht',
+];
+const WORDS_EN = [
+  'Love','Heart','Night','Day','Baby','Girl','Boy','Sky','Sun','Moon',
+  'Stars','Rain','Fire','Water','Dream','Time','Life','World','Home','Road',
+  'Car','Dance','Sing','Cry','Smile','Kiss','Touch','Hold','Run','Fly',
+  'Fall','Stay','Go','Feel','Know','Want','Need','Money','Friend','Mother',
+  'Father','Summer','Winter','City','Street','Light','Dark','Cold','Hot','Blue',
+  'Red','Black','White','Gold','Angel','Devil','Heaven','Hell','Soul','Body',
+  'Eyes','Hands','Blood','Bones','Wild','Free','Young','Crazy','Beautiful','Forever',
+  'Never','Always','Again','Tonight','Tomorrow','Yesterday','Everything','Nothing','Somebody','Nobody',
+  'Radio','Music','Song','Party','Weekend','Friday','Rock','Roll','Highway','Summertime',
+];
+const WORD_TIMER_STEPS = [0, 15, 30, 60];
+let wordState = { used: [], current: null, round: 0, timer: null, remaining: 0 };
+
+function wordPool() {
+  const lang = settings.wordLang || 'both';
+  const list = [];
+  if (lang !== 'en') WORDS_DE.forEach(w => list.push({ w, lang: 'Deutsch' }));
+  if (lang !== 'de') WORDS_EN.forEach(w => list.push({ w, lang: 'Englisch' }));
+  return list;
+}
+function stopWordTimer() {
+  clearInterval(wordState.timer); wordState.timer = null;
+  $('word-timer').classList.add('hidden');
+  $('word-timer').classList.remove('out');
+}
+function startWordTimer() {
+  stopWordTimer();
+  if (!settings.wordTimer) return;
+  wordState.remaining = settings.wordTimer;
+  const el = $('word-timer');
+  el.textContent = wordState.remaining + 's';
+  el.classList.remove('hidden');
+  wordState.timer = setInterval(() => {
+    wordState.remaining--;
+    if (wordState.remaining > 0) { el.textContent = wordState.remaining + 's'; return; }
+    el.textContent = '⏰ Zeit um!';
+    el.classList.add('out');
+    clearInterval(wordState.timer); wordState.timer = null;
+    buzz([200, 100, 200]);
+  }, 1000);
+}
+function nextWord() {
+  buzz();
+  const pool = wordPool();
+  let left = pool.filter(x => !wordState.used.includes(x.lang + '|' + x.w));
+  if (!left.length) { wordState.used = []; left = pool; }        // alle durch → von vorn
+  const pick = left[Math.floor(Math.random() * left.length)];
+  wordState.used.push(pick.lang + '|' + pick.w);
+  wordState.current = pick;
+  wordState.round++;
+  const card = $('word-card');
+  card.style.animation = 'none'; void card.offsetWidth;          // Animation neu auslösen
+  card.style.animation = '';
+  $('word-text').textContent = pick.w;
+  $('word-lang').textContent = pick.lang;
+  $('word-round').textContent = `Runde ${wordState.round}`;
+  $('word-count').textContent = `${pool.length - wordState.used.length} von ${pool.length} Wörtern übrig`;
+  startWordTimer();
+}
+function renderWordChips() {
+  const lang = settings.wordLang || 'both';
+  $('chip-wordlang').textContent = 'Sprache: ' + ({ both: 'Beide', de: 'Deutsch', en: 'Englisch' }[lang]);
+  $('chip-wordlang').classList.add('on');
+  $('chip-wordtimer').textContent = settings.wordTimer ? `Timer: ${settings.wordTimer}s` : 'Timer: Aus';
+  $('chip-wordtimer').classList.toggle('on', settings.wordTimer > 0);
+}
+function startWordGame() {
+  wordState = { used: [], current: null, round: 0, timer: null, remaining: 0 };
+  renderWordChips();
+  $('word-text').textContent = 'Bereit?';
+  $('word-lang').textContent = '';
+  $('word-round').textContent = 'Los geht\'s';
+  const pool = wordPool();
+  $('word-count').textContent = `${pool.length} Wörter im Topf`;
+  stopWordTimer();
+  acquireWakeLock();
+  show('view-words');
+}
+
 /* ============ Spiel ============ */
 let game = { packIndex: -1, current: null, revealed: false, trackEnded: false,
-             gameMode: 'classic', ref: null, streak: 0 };
+             gameMode: 'classic', ref: null, streak: 0, round: 0, fullPlay: false };
 let inGame = false, wakeLock = null;
 let playbackStartMs = 0;
-let ringTimer = null, ringStart = 0, ringElapsed = 0, ringRunning = false;
 let sdkPoll = null;
 
 async function acquireWakeLock() { try { wakeLock = await navigator.wakeLock?.request('screen'); } catch {} }
@@ -957,40 +1122,58 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && inGame) acquireWakeLock();
 });
 
-/* --- Fortschrittsring --- */
-function ringMax() { return settings.len || (game.current?.dur ? game.current.dur / 1000 : 180); }
+/* --- Fortschrittsring ---------------------------------------------------
+   Der Ring läuft rein lokal per requestAnimationFrame und rechnet die
+   Position zwischen zwei Messpunkten selbst hoch. Player-Ereignisse
+   korrigieren nur noch die Abweichung (ringSync) – dadurch ruckelt nichts
+   mehr, weil nicht zwei Timer gleichzeitig zeichnen.
+   ------------------------------------------------------------------------ */
+const ring = { playing: false, base: 0, baseAt: 0, max: 30, raf: 0 };
 function setRing(fraction) {
   const f = Math.max(0, Math.min(1, fraction));
   const el = $('ring-prog');
   el.style.strokeDasharray = RING_C;
   el.style.strokeDashoffset = RING_C * (1 - f);
 }
-function paintRing(elapsedSec) {
-  setRing(elapsedSec / ringMax());
-  $('elapsed').textContent = fmtTime(Math.min(elapsedSec, ringMax()));
+/* Wie lange dauert eine volle Ringumdrehung? */
+function ringSetMax(sec) { ring.max = Math.max(1, sec || 30); }
+function currentMax() {
+  if (game.fullPlay) return (game.current?.dur || 180000) / 1000;
+  return settings.len || (game.current?.dur ? game.current.dur / 1000 : 180);
 }
-function ringTick() {
-  const elapsed = ringElapsed + (Date.now() - ringStart) / 1000;
-  paintRing(elapsed);
-  if (settings.len && elapsed >= settings.len) {
-    ringPause();
-    if (embedController && !usingSdk()) embedController.pause();
-  }
+function ringNow() {
+  return ring.playing ? ring.base + (performance.now() - ring.baseAt) / 1000 : ring.base;
 }
-function ringPlay() {
-  if (ringRunning) return;
-  ringRunning = true; ringStart = Date.now();
-  clearInterval(ringTimer);
-  ringTimer = setInterval(ringTick, 200);
+function ringDraw() {
+  const e = ringNow();
+  setRing(e / ring.max);
+  $('elapsed').textContent = fmtTime(Math.min(e, ring.max));
 }
-function ringPause() {
-  if (ringRunning) ringElapsed += (Date.now() - ringStart) / 1000;
-  ringRunning = false;
-  clearInterval(ringTimer); ringTimer = null;
+function ringLoop() {
+  cancelAnimationFrame(ring.raf);
+  const step = () => {
+    ringDraw();
+    if (ring.playing) ring.raf = requestAnimationFrame(step);
+  };
+  ring.raf = requestAnimationFrame(step);
 }
-function ringReset() { ringPause(); ringElapsed = 0; setRing(0); $('elapsed').textContent = '00:00'; }
+/* Vom Player gemeldete Position übernehmen */
+function ringSync(elapsedSec, playing) {
+  ring.base = Math.max(0, elapsedSec);
+  ring.baseAt = performance.now();
+  ring.playing = !!playing;
+  ringLoop();
+}
+function ringReset() {
+  cancelAnimationFrame(ring.raf);
+  ring.playing = false; ring.base = 0; ring.baseAt = performance.now();
+  ringSetMax(currentMax());
+  setRing(0);
+  $('elapsed').textContent = '00:00';
+}
 
-/* --- SDK-Fortschritt: echte Abspielposition abfragen --- */
+/* --- SDK-Fortschritt: echte Abspielposition abfragen ---
+   Nur noch zweimal pro Sekunde – dazwischen interpoliert der Ring. */
 function startSdkPoll() {
   clearInterval(sdkPoll);
   sdkPoll = setInterval(async () => {
@@ -998,18 +1181,22 @@ function startSdkPoll() {
     const state = await sdkPlayer.getCurrentState();
     if (!state) return;
     const elapsed = Math.max(0, (state.position - playbackStartMs) / 1000);
-    if (!state.paused) paintRing(elapsed);
-    // Ausschnitt zu Ende → anhalten
-    if (settings.len && !state.paused && elapsed >= settings.len) {
+    // nur nachjustieren, wenn die Abweichung spürbar ist (verhindert Zittern)
+    if (Math.abs(elapsed - ringNow()) > 0.4 || state.paused !== !ring.playing) {
+      ringSync(elapsed, !state.paused);
+    }
+    // Ausschnitt zu Ende → anhalten (im „ganzer Song“-Modus nicht)
+    if (settings.len && !game.fullPlay && !state.paused && elapsed >= settings.len) {
       sdkPlayer.pause();
+      ringSync(settings.len, false);
       if (settings.auto && !game.trackEnded) { game.trackEnded = true; setTimeout(() => nextRound(true), 900); }
     }
-    // Song komplett durch (bei „ganzer Song“)
-    if (!settings.len && state.paused && state.position === 0 && !game.trackEnded) {
+    // Song komplett durch
+    if ((!settings.len || game.fullPlay) && state.paused && state.position === 0 && !game.trackEnded) {
       game.trackEnded = true;
-      if (settings.auto) setTimeout(() => nextRound(true), 900);
+      if (settings.auto && !game.fullPlay) setTimeout(() => nextRound(true), 900);
     }
-  }, 300);
+  }, 500);
 }
 function stopSdkPoll() { clearInterval(sdkPoll); sdkPoll = null; }
 
@@ -1023,6 +1210,8 @@ async function startGame(packIndex) {
   game.packIndex = packIndex;
   game.ref = null;
   game.streak = 0;
+  game.round = 0;          // Rundenzähler beginnt bei jeder Partie neu
+  game.fullPlay = false;
   inGame = true;
   acquireWakeLock();
   show('view-game');
@@ -1040,12 +1229,16 @@ async function nextRound(autoplay = false) {
   game.current = track;
   game.revealed = false;
   game.trackEnded = false;
+  game.fullPlay = false;
+  game.round = (game.round || 0) + 1;
   pack.played.push(track.id);
   savePacks(packs);
   $('reveal-box').classList.add('hidden');
   $('play-zone').classList.remove('hidden');
   $('btn-next').classList.add('hidden');
-  $('game-round').textContent = `Runde ${pack.played.length} / ${pack.tracks.length}`;
+  $('btn-replay').classList.add('hidden');
+  const left = pack.tracks.length - pack.played.length;
+  $('game-round').textContent = `Runde ${game.round}` + (left > 0 ? ` · ${left} übrig` : '');
   $('game-pack').textContent = pack.name;
   renderModeUi();
   ringReset();
@@ -1055,7 +1248,7 @@ async function nextRound(autoplay = false) {
     $('play-hint').textContent = 'Aus welchem Jahr ist dieser Song?';
     try {
       await sdkPlayTrack(track);
-      ringPlay();
+      ringSync(0, true);
     } catch (e) {
       $('play-hint').textContent = 'Wiedergabe fehlgeschlagen – Vorschau wird genutzt. (' + e.message + ')';
       sdkReady = false;
@@ -1073,18 +1266,43 @@ async function togglePlayPause() {
   if (usingSdk() && sdkPlayer) {
     const state = await sdkPlayer.getCurrentState();
     // Ausschnitt bereits durchgelaufen → von der Startposition neu anspielen
-    if (state?.paused && settings.len && (state.position - playbackStartMs) / 1000 >= settings.len - 0.5) {
-      ringReset();
+    if (state?.paused && settings.len && !game.fullPlay
+        && (state.position - playbackStartMs) / 1000 >= settings.len - 0.5) {
       await sdkPlayer.seek(playbackStartMs);
       await sdkPlayer.resume();
-      ringPlay();
+      ringSync(0, true);
       return;
     }
     await sdkPlayer.togglePlay();
-    if (state?.paused) ringPlay(); else ringPause();
+    ringSync(ringNow(), !!state?.paused);
     return;
   }
   if (embedController) embedController.togglePlay();
+}
+/* --- Song nach der Auflösung noch einmal komplett von vorn hören --- */
+async function replayFull() {
+  const t = game.current;
+  if (!t) return;
+  buzz();
+  game.fullPlay = true;
+  game.trackEnded = false;
+  playbackStartMs = 0;
+  ringSetMax(currentMax());
+  $('play-zone').classList.remove('hidden');
+  $('play-hint').textContent = `🔁 ${t.title} – ${t.artist} (ganzer Song)`;
+  $('btn-replay').classList.add('hidden');
+  if (usingSdk() && sdkPlayer) {
+    try {
+      await sdkPlayer.seek(0);
+      await sdkPlayer.resume();
+    } catch {
+      await sdkPlayTrack({ ...t, dur: t.dur });   // falls der Track nicht mehr geladen ist
+    }
+    ringSync(0, true);
+  } else if (embedController) {
+    embedController.loadUri('spotify:track:' + t.id);
+    setTimeout(() => { embedController.play(); ringSync(0, true); }, 400);
+  }
 }
 /* --- Modusabhängige Oberfläche --- */
 function renderModeUi() {
@@ -1164,6 +1382,7 @@ function revealTrack(verdict) {
   $('play-zone').classList.add('hidden');
   $('btn-reveal').classList.add('hidden');
   $('hl-buttons').classList.add('hidden');
+  $('btn-replay').classList.remove('hidden');
   $('btn-next').classList.remove('hidden');
   // Im Höher/Tiefer-Modus wird der aufgedeckte Song zur neuen Referenz
   if (game.gameMode === 'highlow' && Number.isFinite(parseInt(t.year, 10))) game.ref = t;
@@ -1205,6 +1424,7 @@ function openPacks() {
 function chooseMode(mode) {
   buzz();
   game.gameMode = mode;
+  if (mode === 'words') { startWordGame(); return; }   // braucht kein Pack
   openPacks();
 }
 /* Jahre aller vorhandenen Packs nachträglich prüfen */
@@ -1240,14 +1460,40 @@ $('btn-relogin').onclick = () => startLogin().catch(e => alert(e.message));
 $('btn-change-client').onclick  = () => { store.del(LS.clientId); route(true); };
 $('btn-change-client2').onclick = () => { store.del(LS.clientId); route(true); };
 $('btn-logout').onclick = () => { store.del(LS.tokens); store.del(LS.scopes); route(true); };
-const openSettings = () => { buzz(); renderChips(); show('view-settings'); };
+let settingsReturn = 'view-modes';          // wohin der Zurück-Pfeil führt
+const openSettings = () => {
+  const from = VIEWS.find(v => !$(v).classList.contains('hidden'));
+  if (from && from !== 'view-settings') settingsReturn = from;
+  buzz(); renderChips(); show('view-settings');
+};
 $('btn-settings').onclick  = openSettings;
 $('btn-settings2').onclick = openSettings;
 $('btn-empty-settings').onclick = openSettings;
-$('btn-settings-back').onclick = openPacks;
+$('btn-settings-back').onclick = () => {
+  if (settingsReturn === 'view-packs') { openPacks(); return; }
+  if (settingsReturn === 'view-words') { renderWordChips(); }
+  show(settingsReturn);
+};
 $('btn-packs-back').onclick = () => show('view-modes');
 $('mode-classic').onclick = () => chooseMode('classic');
 $('mode-highlow').onclick = () => chooseMode('highlow');
+$('mode-words').onclick   = () => chooseMode('words');
+$('btn-word-next').onclick = nextWord;
+$('btn-words-back').onclick = () => { stopWordTimer(); releaseWakeLock(); show('view-modes'); };
+$('btn-word-settings').onclick = openSettings;
+$('chip-wordlang').onclick = () => {
+  const order = ['both', 'de', 'en'];
+  settings.wordLang = order[(order.indexOf(settings.wordLang || 'both') + 1) % order.length];
+  saveSettings(); renderWordChips();
+  wordState.used = [];
+  const pool = wordPool();
+  $('word-count').textContent = `${pool.length} Wörter im Topf`;
+};
+$('chip-wordtimer').onclick = () => {
+  settings.wordTimer = WORD_TIMER_STEPS[(WORD_TIMER_STEPS.indexOf(settings.wordTimer) + 1) % WORD_TIMER_STEPS.length];
+  saveSettings(); renderWordChips();
+  if (settings.wordTimer && wordState.current) startWordTimer(); else stopWordTimer();
+};
 $('btn-older').onclick = () => guessHighLow(false);
 $('btn-newer').onclick = () => guessHighLow(true);
 $('btn-refix').onclick = refixAllPacks;
@@ -1262,6 +1508,7 @@ $('chip-start').onclick  = () => { settings.start = settings.start === 'begin' ?
 $('chip-player').onclick = () => { settings.showPlayer = !settings.showPlayer; saveSettings(); renderChips(); };
 $('btn-play').onclick   = togglePlayPause;
 $('btn-reveal').onclick = reveal;
+$('btn-replay').onclick = replayFull;
 $('btn-next').onclick   = () => { buzz(); nextRound(true); };
 $('btn-back').onclick   = leaveGame;
 
