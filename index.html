@@ -256,6 +256,46 @@ code.uri {
 }
 .pb-card.on .tag { display: block; }
 
+/* ===== Buzzer ===== */
+.mode-card.buzz .ico { background: linear-gradient(145deg, #00F2FE, #10B981); color: #04121f; }
+.buzz-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.qr-box { margin: 12px auto 4px; width: 190px; padding: 10px; background: #fff; border-radius: 12px; }
+.qr-box canvas, .qr-box img { display: block; width: 100%; height: auto; }
+.qr-link { font-size: .68rem; color: var(--text-muted); word-break: break-all; text-align: center; margin-top: 8px; }
+.rank-list { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.rank-row {
+  display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px;
+  background: var(--bg-dark); font-size: .88rem;
+}
+.rank-row.first { background: rgba(0,242,254,.14); border: 1px solid rgba(0,242,254,.5); }
+.rank-row .pos { font-family: var(--font-mono); font-weight: 700; color: var(--text-muted); width: 20px; }
+.rank-row .nm { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank-row .ms { font-family: var(--font-mono); font-size: .8rem; color: var(--amber); }
+.score-chip { font-family: var(--font-mono); font-size: .78rem; color: var(--success-green); }
+
+/* Spieler-Ansicht */
+.pl-state { text-align: center; font-family: var(--font-heading); font-weight: 700;
+  font-size: 1.05rem; color: var(--text-muted); margin: 10px 0 6px; }
+.pl-state.open { color: var(--success-green); }
+.buzz-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 10px 0; }
+.buzzer {
+  width: min(74vw, 300px); aspect-ratio: 1; border-radius: 50%; border: none; cursor: pointer;
+  font-family: var(--font-heading); font-weight: 800; font-size: 2.4rem; letter-spacing: 2px; color: #fff;
+  background: radial-gradient(circle at 35% 30%, #ff6ea9, #EC4899 45%, #9d1149 100%);
+  box-shadow: 0 14px 0 #7a0e39, 0 20px 44px rgba(236,72,153,.5);
+  transition: transform .08s, box-shadow .08s, filter .25s;
+  touch-action: manipulation; user-select: none; -webkit-user-select: none;
+}
+.buzzer:disabled { filter: grayscale(.75) brightness(.55); cursor: default; }
+.buzzer:not(:disabled):active, .buzzer.pressed {
+  transform: translateY(12px); box-shadow: 0 2px 0 #7a0e39, 0 6px 20px rgba(236,72,153,.4);
+}
+.buzzer.armed { animation: buzzPulse 1.4s ease-in-out infinite; }
+@keyframes buzzPulse { 50% { box-shadow: 0 14px 0 #7a0e39, 0 22px 60px rgba(236,72,153,.85); } }
+.pl-result { text-align: center; font-family: var(--font-mono); font-weight: 700;
+  font-size: 1.3rem; color: var(--amber); min-height: 32px; }
+.pl-score { text-align: center; font-size: .86rem; color: var(--text-muted); margin-top: 4px; }
+
 /* ===== Weitersingen ===== */
 .mode-card.sing .ico { background: linear-gradient(145deg, #F59E0B, #EC4899); }
 .sing-banner {
@@ -439,6 +479,13 @@ code.uri {
         <span class="d">Ein Wort erscheint – wer zuerst ein Lied damit singt, gewinnt die Runde. Ohne Spotify spielbar.</span>
       </span>
     </button>
+    <button class="mode-card buzz" id="mode-buzzer">
+      <span class="ico">🔔</span>
+      <span>
+        <span class="t">Buzzer-Party</span>
+        <span class="d">Alle buzzern vom eigenen Handy, Beitritt per QR-Code. Wer zuerst drückt, darf antworten.</span>
+      </span>
+    </button>
     <button class="mode-card sing" id="mode-sing">
       <span class="ico">🎙️</span>
       <span>
@@ -572,11 +619,50 @@ https://open.spotify.com/playlist/…"></textarea>
     </div>
 
     <div class="card">
+      <h2 class="h2">🔔 Buzzer (Firebase)</h2>
+      <p class="body-sm">Für den Buzzer-Modus brauchst du ein kostenloses Firebase-Projekt mit <b>Realtime Database</b> und aktivierter <b>anonymer Anmeldung</b>. Füge hier den Konfigurations-Block aus der Firebase-Konsole ein.</p>
+      <label style="margin-top:12px">Firebase-Konfiguration</label>
+      <textarea id="inp-fb-config" rows="4" placeholder='{ "apiKey": "...", "authDomain": "...", "databaseURL": "https://....firebasedatabase.app", "projectId": "..." }'></textarea>
+      <button class="btn btn-purple" id="btn-fb-save">Speichern &amp; verbinden</button>
+      <button class="btn btn-ghost" id="btn-fb-clear">Buzzer-Konfiguration löschen</button>
+      <div id="fb-status" class="body-sm" style="margin-top:12px"></div>
+      <div id="fb-err" class="err hidden"></div>
+    </div>
+
+    <div class="card">
       <h2 class="h2">🔑 Konto</h2>
       <button class="btn btn-ghost" id="btn-change-client2" style="margin-top:0">Client ID ändern</button>
       <button class="btn btn-ghost" id="btn-logout">Von Spotify abmelden</button>
       <p class="body-sm" style="margin-top:14px">Redirect URI dieser Installation:</p>
       <code class="uri" id="redirect-uri-display2"></code>
+    </div>
+  </div>
+
+  <!-- ============ SPIELER-BUZZER (Gäste, ohne Spotify) ============ -->
+  <div id="view-player" class="hidden">
+    <div class="app-header">
+      <span class="title">Snippet</span>
+      <span class="round-pill" id="pl-room"></span>
+    </div>
+
+    <div id="pl-join" class="card">
+      <h2 class="h2">👋 Mitspielen</h2>
+      <p class="body-sm">Du trittst dem Raum <b id="pl-room-code"></b> bei. Kein Spotify-Konto nötig.</p>
+      <div style="margin-top:14px">
+        <label>Dein Name</label>
+        <input type="text" id="inp-pl-name" placeholder="z. B. Uli" autocomplete="off" maxlength="18">
+      </div>
+      <button class="btn btn-primary" id="btn-pl-join">Beitreten</button>
+      <div id="pl-err" class="err hidden"></div>
+    </div>
+
+    <div id="pl-stage" class="hidden" style="display:flex;flex-direction:column;flex:1">
+      <div class="pl-state" id="pl-state">Warte auf die Freigabe …</div>
+      <div class="buzz-wrap">
+        <button class="buzzer" id="btn-buzz" disabled>BUZZ</button>
+      </div>
+      <div class="pl-result" id="pl-result"></div>
+      <div class="pl-score" id="pl-score"></div>
     </div>
   </div>
 
@@ -631,6 +717,25 @@ https://open.spotify.com/playlist/…"></textarea>
       <div class="mic">🎙️</div>
       <div class="txt">Weitersingen!</div>
       <div class="sub">Wer bringt die nächste Zeile?</div>
+    </div>
+
+    <!-- Buzzer-Panel (nur im Buzzer-Modus) -->
+    <div id="buzz-panel" class="hidden">
+      <div class="card" style="padding:14px">
+        <div class="buzz-head">
+          <span class="body-sm">Raum <b class="mono" id="bz-code"></b></span>
+          <button class="btn btn-ghost btn-sm" id="btn-bz-qr">QR anzeigen</button>
+        </div>
+        <div id="bz-qr-box" class="qr-box hidden"></div>
+        <div id="bz-players" class="body-sm" style="margin-top:8px"></div>
+        <div id="bz-ranking" class="rank-list"></div>
+      </div>
+      <button class="btn btn-cyan" id="btn-bz-open">🔔 Buzzer freigeben</button>
+      <button class="btn btn-pink hidden" id="btn-bz-self">✋ Selbst buzzern</button>
+      <div class="hl-row hidden" id="bz-judge">
+        <button class="btn btn-primary" id="btn-bz-ok">✓ Punkt</button>
+        <button class="btn btn-ghost" id="btn-bz-no">✗ Weiter freigeben</button>
+      </div>
     </div>
 
     <div id="reveal-box" class="reveal-card hidden"></div>
@@ -768,7 +873,9 @@ function fmtTime(sec) {
 
 /* ============ Views ============ */
 const VIEWS = ['view-splash', 'view-setup', 'view-login', 'view-modes', 'view-packs',
-               'view-settings', 'view-game', 'view-words'];
+               'view-settings', 'view-game', 'view-words', 'view-player'];
+// Raumcode aus dem QR-Link (?r=XKCD) – Gäste brauchen kein Spotify-Konto
+const pendingRoomCode = (new URLSearchParams(location.search).get('r') || '').toUpperCase().trim();
 const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 function show(view) {
   const apply = () => {
@@ -1149,6 +1256,12 @@ function renderChips() {
   $('chip-player').classList.toggle('on', settings.showPlayer);
   $('player-box').classList.toggle('visible', settings.showPlayer);
   renderPlaybackCards();
+  const cfg = getFbConfig();
+  $('fb-status').textContent = cfg
+    ? (fb.ready ? '✅ Verbunden mit ' + (cfg.projectId || 'Firebase') + '.'
+                : 'Konfiguration hinterlegt (' + (cfg.projectId || 'Projekt') + ') – Verbindung entsteht beim Spielstart.')
+    : 'Keine Konfiguration hinterlegt.';
+  if (cfg && !$('inp-fb-config').value) $('inp-fb-config').value = JSON.stringify(cfg, null, 1);
 }
 /* Balken-Grafik der beiden Wiedergabe-Karten (rein dekorativ) */
 function drawBars(el, peakCenter) {
@@ -1512,6 +1625,10 @@ async function startGame(packIndex) {
     try { await sdkPlayer.activateElement(); sdkActivated = true; } catch {}
   }
   startSdkPoll();
+  if (game.gameMode === 'buzzer') {
+    try { await hostCreateRoom(); }
+    catch (e) { alert('Buzzer-Raum konnte nicht angelegt werden:\n' + e.message); }
+  }
   nextRound(true);
 }
 let roundBusy = false;
@@ -1661,12 +1778,22 @@ function resumeAfterCut() {
 function renderModeUi() {
   const hl = game.gameMode === 'highlow';
   const sing = game.gameMode === 'sing';
+  const bz = game.gameMode === 'buzzer';
   const hasRef = hl && !!game.ref;
   $('ref-box').classList.toggle('hidden', !hasRef);
   $('hl-buttons').classList.toggle('hidden', !hasRef);
   $('sing-banner').classList.add('hidden');
   $('btn-cut').classList.toggle('hidden', !sing);
   $('btn-resume').classList.add('hidden');
+  $('buzz-panel').classList.toggle('hidden', !bz);
+  if (bz) {
+    $('btn-bz-open').textContent = '🔔 Buzzer freigeben';
+    $('btn-bz-self').classList.add('hidden');
+    $('bz-ranking').innerHTML = '';
+    $('bz-judge').classList.add('hidden');
+    room.state = 'locked';
+    if (room.ref) room.ref.update({ state: 'locked' }).catch(() => {});
+  }
   $('btn-reveal').classList.toggle('hidden', hasRef || sing);
   $('streak-pill').classList.toggle('hidden', !hl);
   if (sing) {
@@ -1781,6 +1908,7 @@ function leaveGame() {
   inGame = false; releaseWakeLock(); ringReset(); stopSdkPoll();
   cancelAnimationFrame(ring.raf);
   resetGlow();
+  if (room.isHost) hostCloseRoom();
   openPacks();
 }
 function openPacks() {
@@ -1790,6 +1918,11 @@ function openPacks() {
 }
 function chooseMode(mode) {
   buzz();
+  if (mode === 'buzzer' && !getFbConfig()) {
+    alert('Für den Buzzer-Modus fehlt noch die Firebase-Konfiguration.\n\nEinstellungen → „Buzzer (Firebase)" → Konfiguration einfügen.');
+    openSettings();
+    return;
+  }
   game.gameMode = mode;
   if (mode === 'words') { startWordGame(); return; }   // braucht kein Pack
   openPacks();
@@ -1813,6 +1946,300 @@ async function refixAllPacks() {
   el.textContent = 'Fertig ✓';
   $('btn-refix').disabled = false;
   setTimeout(() => el.classList.add('hidden'), 2500);
+}
+
+/* ============================================================
+   Buzzer über Firebase Realtime Database
+   ------------------------------------------------------------
+   Fairness: Der Client schickt NICHT seine Uhrzeit, sondern die selbst
+   gemessene Reaktionszeit. Jedes Gerät merkt sich in dem Moment, in dem
+   die Freigabe bei ihm eintrifft, performance.now() als Nullpunkt. Beim
+   Drücken wird die Differenz übertragen. Dadurch fällt die Netzlaufzeit
+   heraus: Ein langsames Handy bekommt das Startsignal später, misst aber
+   ab genau diesem späteren Zeitpunkt. Der Server-Timestamp dient nur noch
+   als Gleichstand-Entscheider.
+   ============================================================ */
+const FB_VERSIONS = ['12.17.1', '11.10.0', '10.14.1'];
+const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';   // ohne I/O/0/1
+let fb = { app: null, db: null, uid: null, ready: false };
+let room = { code: null, isHost: false, ref: null, listeners: [], t0: 0, state: 'locked', myName: '' };
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const el = document.createElement('script');
+    el.src = src; el.async = false;
+    el.onload = resolve;
+    el.onerror = () => reject(new Error('Nicht ladbar: ' + src));
+    document.head.appendChild(el);
+  });
+}
+/* Firebase-SDK laden – mehrere Quellen, damit eine ausgefallene CDN-Version
+   nicht das ganze Feature lahmlegt. */
+async function loadFirebaseSdk() {
+  if (window.firebase?.database) return;
+  const candidates = [
+    ...FB_VERSIONS.map(v => `https://www.gstatic.com/firebasejs/${v}/`),
+    'https://cdn.jsdelivr.net/npm/firebase@12/',
+    'https://cdn.jsdelivr.net/npm/firebase@10/',
+  ];
+  let lastErr;
+  for (const base of candidates) {
+    try {
+      await loadScript(base + 'firebase-app-compat.js');
+      await loadScript(base + 'firebase-auth-compat.js');
+      await loadScript(base + 'firebase-database-compat.js');
+      if (window.firebase?.database) return;
+    } catch (e) { lastErr = e; }
+  }
+  throw new Error('Firebase-SDK konnte nicht geladen werden. ' + (lastErr?.message || ''));
+}
+/* Optional: Konfiguration hier fest eintragen, dann brauchen Gäste nichts.
+   Firebase-Web-Konfigurationen sind ausdrücklich öffentlich – der Schutz
+   kommt aus den Security Rules, nicht aus der Geheimhaltung dieser Werte. */
+const FIREBASE_CONFIG = null;   // z. B. { apiKey: "...", databaseURL: "...", ... }
+function getFbConfig() { return store.get('hitrater_fb_config') || FIREBASE_CONFIG; }
+/* Kompakte Konfiguration für den QR-Link – nur die Felder, die die
+   Realtime Database und die anonyme Anmeldung wirklich brauchen. */
+function packFbConfig() {
+  const c = getFbConfig();
+  if (!c) return '';
+  try {
+    return btoa(JSON.stringify({
+      apiKey: c.apiKey, databaseURL: c.databaseURL,
+      authDomain: c.authDomain, projectId: c.projectId,
+    })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  } catch { return ''; }
+}
+function unpackFbConfig(s) {
+  try {
+    const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(atob(b64 + '='.repeat((4 - b64.length % 4) % 4)));
+  } catch { return null; }
+}
+/* Akzeptiert reines JSON ebenso wie den kopierten Konsolen-Block
+   „const firebaseConfig = { apiKey: "…" };" */
+function parseFbConfig(raw) {
+  let text = raw.trim();
+  const brace = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (brace < 0 || end < 0) throw new Error('Keine Konfiguration erkannt.');
+  text = text.slice(brace, end + 1);
+  let cfg;
+  try { cfg = JSON.parse(text); }
+  catch {
+    // Schlüssel ohne Anführungszeichen und einfache Hochkommata zulassen
+    const relaxed = text
+      .replace(/([{,]\s*)([A-Za-z0-9_]+)\s*:/g, '$1"$2":')
+      .replace(/'/g, '"')
+      .replace(/,(\s*})/g, '$1');
+    cfg = JSON.parse(relaxed);
+  }
+  if (!cfg.apiKey) throw new Error('apiKey fehlt.');
+  if (!cfg.databaseURL) throw new Error('databaseURL fehlt – ist die Realtime Database angelegt?');
+  return cfg;
+}
+async function connectFirebase() {
+  if (fb.ready) return true;
+  const cfg = getFbConfig();
+  if (!cfg) throw new Error('Keine Firebase-Konfiguration hinterlegt.');
+  await loadFirebaseSdk();
+  fb.app = window.firebase.apps?.length ? window.firebase.app() : window.firebase.initializeApp(cfg);
+  const cred = await window.firebase.auth().signInAnonymously();
+  fb.uid = cred.user.uid;
+  fb.db = window.firebase.database();
+  fb.ready = true;
+  return true;
+}
+const SV_TIMESTAMP = () => window.firebase.database.ServerValue.TIMESTAMP;
+function randomRoomCode() {
+  return Array.from({ length: 4 }, () =>
+    ROOM_ALPHABET[Math.floor(Math.random() * ROOM_ALPHABET.length)]).join('');
+}
+function roomLink(code) {
+  // Ohne fest eingetragene Konfiguration wird sie im Link mitgegeben,
+  // damit Gäste nach dem Scannen sofort loslegen können.
+  const extra = FIREBASE_CONFIG ? '' : '&c=' + packFbConfig();
+  return REDIRECT_URI + '?r=' + code + extra;
+}
+function detachRoom() {
+  room.listeners.forEach(({ ref, ev, cb }) => ref.off(ev, cb));
+  room.listeners = [];
+}
+function watch(ref, ev, cb) { ref.on(ev, cb); room.listeners.push({ ref, ev, cb }); }
+
+/* ---------------- Host ---------------- */
+async function hostCreateRoom() {
+  await connectFirebase();
+  detachRoom();
+  const code = randomRoomCode();
+  room.code = code;
+  room.isHost = true;
+  room.ref = fb.db.ref('rooms/' + code);
+  await room.ref.set({
+    host: fb.uid,
+    state: 'locked',
+    round: 0,
+    createdAt: SV_TIMESTAMP(),
+    players: { [fb.uid]: { name: 'Host', score: 0, joinedAt: SV_TIMESTAMP() } },
+  });
+  room.ref.onDisconnect().remove();          // Raum verschwindet, wenn der Host geht
+  $('bz-code').textContent = code;
+  watch(room.ref.child('players'), 'value', (snap) => renderHostPlayers(snap.val() || {}));
+  watch(room.ref.child('buzzes'), 'value', (snap) => renderHostRanking(snap.val() || {}));
+  return code;
+}
+function renderHostPlayers(players) {
+  const names = Object.entries(players).map(([uid, p]) =>
+    `${p.name}${p.score ? ` <span class="score-chip">${p.score}</span>` : ''}`);
+  $('bz-players').innerHTML = names.length
+    ? `👥 ${names.length}: ` + names.join(' · ')
+    : '👥 Noch niemand beigetreten – QR-Code zeigen.';
+}
+let lastRanking = [];
+function renderHostRanking(buzzes) {
+  const list = Object.entries(buzzes)
+    .map(([uid, b]) => ({ uid, ...b }))
+    .filter(b => b.round === game.round)
+    .sort((a, b) => (a.delta ?? 1e9) - (b.delta ?? 1e9) || (a.t ?? 0) - (b.t ?? 0));
+  lastRanking = list;
+  const el = $('bz-ranking');
+  if (!list.length) { el.innerHTML = ''; $('bz-judge').classList.add('hidden'); return; }
+  el.innerHTML = list.map((b, i) => `
+    <div class="rank-row ${i === 0 ? 'first' : ''}">
+      <span class="pos">${i + 1}</span>
+      <span class="nm"></span>
+      <span class="ms">${Math.round(b.delta ?? 0)} ms</span>
+    </div>`).join('');
+  el.querySelectorAll('.nm').forEach((n, i) => { n.textContent = list[i].name || '?'; });
+  $('bz-judge').classList.remove('hidden');
+  if (list.length === 1) buzz(40);
+}
+async function hostOpenBuzzer() {
+  if (!room.ref) return;
+  buzz();
+  await room.ref.child('buzzes').remove();
+  await room.ref.update({ state: 'open', round: game.round, openedAt: SV_TIMESTAMP() });
+  // Der Host misst seine eigene Reaktionszeit nach derselben Regel
+  room.state = 'open';
+  room.t0 = performance.now();
+  $('bz-ranking').innerHTML = '';
+  $('bz-judge').classList.add('hidden');
+  $('btn-bz-open').textContent = '🔔 Buzzer ist frei';
+  $('btn-bz-self').classList.remove('hidden');
+}
+async function hostJudge(correct) {
+  const first = lastRanking[0];
+  if (!first) return;
+  buzz(25);
+  if (correct) {
+    const scoreRef = room.ref.child(`players/${first.uid}/score`);
+    await scoreRef.transaction(v => (v || 0) + 1);
+    await room.ref.update({ state: 'locked' });
+    $('bz-judge').classList.add('hidden');
+    reveal();
+  } else {
+    // Falsch geraten: dieser Buzz fliegt raus, die anderen dürfen weiter
+    await room.ref.child('buzzes/' + first.uid).remove();
+  }
+}
+async function hostCloseRoom() {
+  try { if (room.ref) { room.ref.onDisconnect().cancel(); await room.ref.remove(); } } catch {}
+  detachRoom();
+  room = { code: null, isHost: false, ref: null, listeners: [], t0: 0, state: 'locked', myName: '' };
+}
+/* QR-Code – falls die Bibliothek nicht lädt, bleibt der Link als Text */
+async function showRoomQr() {
+  const box = $('bz-qr-box');
+  box.classList.toggle('hidden');
+  if (box.classList.contains('hidden') || box.dataset.done) return;
+  const link = roomLink(room.code);
+  box.innerHTML = '<div class="body-sm" style="color:#333">QR wird erzeugt …</div>';
+  try {
+    if (!window.QRCode) {
+      await loadScript('https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js');
+    }
+    box.innerHTML = '';
+    new window.QRCode(box, { text: link, width: 170, height: 170, correctLevel: window.QRCode.CorrectLevel.M });
+    box.insertAdjacentHTML('beforeend', `<div class="qr-link" style="color:#333">${link}</div>`);
+    box.dataset.done = '1';
+  } catch {
+    box.innerHTML = `<div class="qr-link" style="color:#333">QR nicht verfügbar – Link teilen:<br><b>${link}</b></div>`;
+  }
+}
+
+/* ---------------- Spieler ---------------- */
+async function playerJoin(code, name) {
+  await connectFirebase();
+  detachRoom();
+  room.code = code;
+  room.isHost = false;
+  room.myName = name;
+  room.ref = fb.db.ref('rooms/' + code);
+  const exists = (await room.ref.child('state').get()).exists();
+  if (!exists) throw new Error(`Raum ${code} gibt es nicht (mehr). Neuen QR-Code scannen.`);
+  const me = room.ref.child('players/' + fb.uid);
+  await me.update({ name, joinedAt: SV_TIMESTAMP() });
+  me.onDisconnect().remove();
+  acquireWakeLock();                       // Display darf nicht einschlafen
+  watch(room.ref.child('state'), 'value', (snap) => {
+    const st = snap.val() || 'locked';
+    room.state = st;
+    if (st === 'open') {
+      room.t0 = performance.now();         // Nullpunkt: Eintreffen der Freigabe
+      armBuzzer(true);
+    } else {
+      armBuzzer(false);
+    }
+  });
+  watch(room.ref.child('players/' + fb.uid + '/score'), 'value', (snap) => {
+    const s = snap.val() || 0;
+    $('pl-score').textContent = s ? `Deine Punkte: ${s}` : '';
+  });
+  watch(room.ref.child('buzzes'), 'value', (snap) => {
+    const all = snap.val() || {};
+    const mine = all[fb.uid];
+    if (!mine) { $('pl-result').textContent = ''; return; }
+    const sorted = Object.values(all).sort((a, b) => (a.delta ?? 1e9) - (b.delta ?? 1e9));
+    const pos = sorted.findIndex(b => b.delta === mine.delta) + 1;
+    $('pl-result').textContent = `${Math.round(mine.delta)} ms · Platz ${pos}`;
+  });
+}
+function armBuzzer(on) {
+  const b = $('btn-buzz');
+  b.disabled = !on;
+  b.classList.toggle('armed', on);
+  b.classList.remove('pressed');
+  $('pl-state').textContent = on ? 'Jetzt buzzern!' : 'Warte auf die Freigabe …';
+  $('pl-state').classList.toggle('open', on);
+  if (on) { $('pl-result').textContent = ''; buzz(30); }
+}
+async function doBuzz() {
+  if (room.state !== 'open' || !room.ref) return;
+  const delta = performance.now() - room.t0;
+  // Optimistisches UI: sofort reagieren, nicht auf die Datenbank warten
+  $('btn-buzz').classList.add('pressed');
+  $('btn-buzz').disabled = true;
+  $('pl-state').textContent = 'Gebuzzert!';
+  buzz(60);
+  try {
+    await room.ref.child('buzzes/' + fb.uid).set({
+      round: (await room.ref.child('round').get()).val() ?? 0,
+      delta: Math.round(delta),
+      name: room.myName || 'Spieler',
+      t: SV_TIMESTAMP(),
+    });
+  } catch (e) {
+    $('pl-state').textContent = 'Konnte nicht senden – nochmal versuchen.';
+    $('btn-buzz').disabled = false;
+  }
+}
+/* Host buzzt aus der Spielansicht heraus mit */
+async function hostSelfBuzz() {
+  if (!room.ref || room.state !== 'open') return;
+  const delta = performance.now() - room.t0;
+  await room.ref.child('buzzes/' + fb.uid).set({
+    round: game.round, delta: Math.round(delta), name: 'Host', t: SV_TIMESTAMP(),
+  });
 }
 
 /* ============ Events ============ */
@@ -1846,6 +2273,49 @@ $('mode-classic').onclick = () => chooseMode('classic');
 $('mode-highlow').onclick = () => chooseMode('highlow');
 $('mode-words').onclick   = () => chooseMode('words');
 $('mode-sing').onclick    = () => chooseMode('sing');
+$('mode-buzzer').onclick  = () => chooseMode('buzzer');
+$('btn-bz-open').onclick  = () => hostOpenBuzzer().catch(e => alert(e.message));
+$('btn-bz-self').onclick  = () => hostSelfBuzz().catch(() => {});
+$('btn-bz-ok').onclick    = () => hostJudge(true).catch(e => alert(e.message));
+$('btn-bz-no').onclick    = () => hostJudge(false).catch(e => alert(e.message));
+$('btn-bz-qr').onclick    = showRoomQr;
+$('btn-buzz').onclick     = doBuzz;
+$('btn-pl-join').onclick  = async () => {
+  const name = $('inp-pl-name').value.trim();
+  if (!name) { showErr('pl-err', 'Bitte einen Namen eingeben.'); return; }
+  hideErr('pl-err');
+  $('btn-pl-join').disabled = true;
+  try {
+    store.set('hitrater_player_name', name);
+    await playerJoin(pendingRoomCode, name);
+    $('pl-join').classList.add('hidden');
+    $('pl-stage').classList.remove('hidden');
+  } catch (e) {
+    showErr('pl-err', e.message);
+  } finally {
+    $('btn-pl-join').disabled = false;
+  }
+};
+$('btn-fb-save').onclick = async () => {
+  hideErr('fb-err');
+  try {
+    const cfg = parseFbConfig($('inp-fb-config').value);
+    store.set('hitrater_fb_config', cfg);
+    fb.ready = false;
+    $('fb-status').textContent = 'Verbinde …';
+    await connectFirebase();
+    $('fb-status').textContent = '✅ Verbunden. Der Buzzer-Modus ist einsatzbereit.';
+  } catch (e) {
+    $('fb-status').textContent = '';
+    showErr('fb-err', e.message);
+  }
+};
+$('btn-fb-clear').onclick = () => {
+  store.del('hitrater_fb_config');
+  fb = { app: null, db: null, uid: null, ready: false };
+  $('inp-fb-config').value = '';
+  $('fb-status').textContent = 'Keine Konfiguration hinterlegt.';
+};
 $('btn-cut').onclick      = cutSong;
 $('btn-resume').onclick   = resumeAfterCut;
 $('btn-word-next').onclick = nextWord;
@@ -1898,6 +2368,23 @@ async function route(skipSplash = false) {
   show('view-modes');
 }
 (async function init() {
+  // Gast über QR-Code: direkt in die Buzzer-Ansicht, ohne Spotify-Einrichtung
+  if (pendingRoomCode) {
+    // Konfiguration aus dem Link übernehmen, falls sie mitgeschickt wurde
+    const packed = new URLSearchParams(location.search).get('c');
+    if (packed && !getFbConfig()) {
+      const cfg = unpackFbConfig(packed);
+      if (cfg?.apiKey && cfg?.databaseURL) store.set('hitrater_fb_config', cfg);
+    }
+    $('pl-room').textContent = 'Raum ' + pendingRoomCode;
+    $('pl-room-code').textContent = pendingRoomCode;
+    $('inp-pl-name').value = store.get('hitrater_player_name', '') || '';
+    show('view-player');
+    if (!getFbConfig()) {
+      showErr('pl-err', 'Diesem Link fehlt die Buzzer-Konfiguration. Bitte den QR-Code direkt aus der App des Gastgebers scannen.');
+    }
+    return;
+  }
   let fromLogin = false;
   try { fromLogin = !!(await handleCallback()); }
   catch (e) {
