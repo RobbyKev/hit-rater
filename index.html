@@ -319,6 +319,27 @@ code.uri {
   font-size: 1.3rem; color: var(--amber); min-height: 32px; }
 .pl-score { text-align: center; font-size: .86rem; color: var(--text-muted); margin-top: 4px; }
 
+/* ===== Kartensatz-Auswahl ===== */
+.set-row {
+  display: flex; align-items: flex-start; gap: 12px; width: 100%; text-align: left;
+  background: var(--surface-card); border: 1px solid rgba(255,255,255,.08);
+  border-radius: 14px; padding: 14px; margin-bottom: 10px; cursor: pointer;
+  color: var(--text); font-family: var(--font-body); transition: all .18s;
+}
+.set-row .box {
+  width: 26px; height: 26px; border-radius: 8px; flex-shrink: 0; margin-top: 2px;
+  border: 2px solid rgba(255,255,255,.25); display: flex; align-items: center;
+  justify-content: center; font-size: .9rem; font-weight: 800; color: transparent;
+}
+.set-row.on { border-color: var(--success-green); background: rgba(16,185,129,.10); }
+.set-row.on .box { background: var(--success-green); border-color: var(--success-green); color: #fff; }
+.set-row.on.adult { border-color: var(--primary-glow); background: rgba(236,72,153,.10); }
+.set-row.on.adult .box { background: var(--primary-glow); border-color: var(--primary-glow); }
+.set-row .l { font-family: var(--font-heading); font-weight: 700; font-size: .98rem; }
+.set-row .d { font-size: .78rem; color: var(--text-muted); margin-top: 3px; line-height: 1.45; }
+.set-row .n { font-family: var(--font-mono); font-size: .78rem; color: var(--text-muted); margin-left: auto; }
+.set-row.empty { opacity: .45; }
+
 /* ===== Perfekter Moment ===== */
 .mode-card.match .ico { background: linear-gradient(145deg, #F59E0B, #10B981); color: #04121f; }
 .now-playing {
@@ -589,6 +610,19 @@ code.uri {
       <button class="chip" id="chip-wordtimer">Timer: Aus</button>
     </div>
     <button class="btn btn-cyan" id="btn-word-next">🎤 Nächstes Wort</button>
+  </div>
+
+  <!-- ============ KARTENSATZ-AUSWAHL (vor „Perfekter Moment") ============ -->
+  <div id="view-cardsets" class="hidden">
+    <div class="app-header">
+      <button class="icon-btn" id="btn-cs-back">←</button>
+      <span class="title" style="flex:1">Kartensätze</span>
+      <button class="icon-btn" id="btn-cs-settings" title="Einstellungen">⚙️</button>
+    </div>
+    <p class="body-sm" style="margin-bottom:14px">Welche Karten sollen in den Topf? Mehrfachauswahl – die gewählten Sätze werden gemischt.</p>
+    <div id="cs-list"></div>
+    <div id="cs-status" class="body-sm" style="text-align:center;margin-top:12px"></div>
+    <button class="btn btn-primary" id="btn-cs-go">Weiter zur Pack-Auswahl ›</button>
   </div>
 
   <!-- ============ PACK-AUSWAHL ============ -->
@@ -1031,8 +1065,8 @@ function fmtTime(sec) {
 }
 
 /* ============ Views ============ */
-const VIEWS = ['view-splash', 'view-setup', 'view-login', 'view-modes', 'view-packs',
-               'view-settings', 'view-game', 'view-words', 'view-player'];
+const VIEWS = ['view-splash', 'view-setup', 'view-login', 'view-modes', 'view-cardsets',
+               'view-packs', 'view-settings', 'view-game', 'view-words', 'view-player'];
 // Raumcode aus dem QR-Link (?r=XKCD) – Gäste brauchen kein Spotify-Konto
 const pendingRoomCode = (new URLSearchParams(location.search).get('r') || '').toUpperCase().trim();
 const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -1914,7 +1948,7 @@ const CARDS_BASE = [
   "Wie es sich anfühlt, wenn man die Frischhaltefolie ohne Verknoten abreißt.",
   "Der Vibe, wenn die Tupperdose und ihr Deckel zusammenfinden.",
 ];
-/* Ab 18 – „Vollrausch": Suff, Kater, Partynächte. */
+/* Ab 18 – „Suff & Kater": Partynächte, Filmriss, der Morgen danach. */
 const CARDS_NIGHT = [
   "Der Vibe, wenn der vierte Liter Bier beschließt, den Magen auf dem Beifahrersitz zu verlassen.",
   "Das spiele ich ab, wenn man am Morgen danach aufwacht und ein Straßenschild im Bett liegen hat.",
@@ -1968,7 +2002,7 @@ const CARDS_NIGHT = [
   "Wie es sich anfühlt, wenn man auf einer Beerdigung lachen muss, weil jemand gefurzt hat.",
 ];
 /* Schwarzer Humor – makaber, aber ohne Erotik. Lässt sich dadurch auch in
-   Runden spielen, in denen „Ohne Filter" zu weit ginge. */
+   Runden spielen, in denen „Erotik & Derbes" zu weit ginge. */
 const CARDS_DARK = [
   "Der Soundtrack für den Moment, wenn der Priester bei der Beerdigung den falschen Namen sagt.",
   "Die Musik für das mulmige Gefühl, wenn der Vaterschaftstest vorgelesen wird.",
@@ -2024,7 +2058,7 @@ const CARDS_QUEER = [
   "Der Song für den Moment, wenn man zum ersten Mal Händchen hält, ohne sich vorher umzuschauen.",
   "Die Melodie, wenn jemand fragt: „Und wer von euch ist der Mann in der Beziehung?“",
 ];
-/* Ab 18 – „Ohne Filter": deutlich derber, Erotik und schwarzer Humor. */
+/* Ab 18 – „Erotik & Derbes": sehr direkte Situationen, nur für Erwachsene. */
 const CARDS_SPICY = [
   "Der Soundtrack, wenn man versehentlich den falschen Namen im Bett stöhnt.",
   "Das spiele ich ab, wenn die Schwiegereltern beim Aufräumen die Gleitgel-Flasche unter dem Bett finden.",
@@ -2190,17 +2224,28 @@ function newSetId() { return 'u' + Date.now().toString(36); }
 /* Die Kartensätze lassen sich einzeln zu- und abschalten und beliebig
    mischen – ein Abend mit Sauf-Humor muss nicht gleich erotisch werden. */
 const BUILTIN_SETS = [
-  { id: 'base',  label: '🃏 Standard',       get: () => CARDS_BASE },
-  { id: 'dark',  label: '🖤 Schwarzer Humor', get: () => CARDS_DARK },
-  { id: 'queer', label: '🏳️‍🌈 Queer Life',    get: () => CARDS_QUEER },
-  { id: 'night', label: '🍻 Vollrausch',     get: () => CARDS_NIGHT, adult: true },
-  { id: 'spicy', label: '🌶 Ohne Filter',    get: () => CARDS_SPICY, adult: true },
+  { id: 'base',  label: '🃏 Alltag',
+    desc: 'Haushalt, Büro, Technik, Familie – für jede Runde geeignet.',
+    get: () => CARDS_BASE },
+  { id: 'dark',  label: '🖤 Schwarzer Humor',
+    desc: 'Beerdigungen, Erbschaften, Missgeschicke. Makaber, aber jugendfrei.',
+    get: () => CARDS_DARK },
+  { id: 'queer', label: '🏳️‍🌈 Queer Life',
+    desc: 'Coming-out, Szene, Dating und die immer gleichen Fragen.',
+    get: () => CARDS_QUEER },
+  { id: 'night', label: '🍻 Suff & Kater',
+    desc: 'Partynächte, Filmriss, der Morgen danach. Ab 18.',
+    get: () => CARDS_NIGHT, adult: true },
+  { id: 'spicy', label: '🌶 Erotik & Derbes',
+    desc: 'Sex, Fetisch, sehr direkte Situationen. Nur für Erwachsene.',
+    get: () => CARDS_SPICY, adult: true },
 ];
 /* Mitgelieferte plus selbst angelegte Kategorien */
 function allCardSets() {
   return BUILTIN_SETS.concat(ownSets().map(s => ({
     id: s.id,
     label: (s.adult ? '🔞 ' : '✏️ ') + (s.name || 'Ohne Namen'),
+    desc: s.adult ? 'Deine eigene Kategorie – ab 18.' : 'Deine eigene Kategorie.',
     adult: !!s.adult,
     get: () => s.cards || [],
   })));
@@ -2787,6 +2832,42 @@ function openPacks() {
   $('packs-title').textContent = game.gameMode === 'highlow' ? 'Höher/Tiefer · Pack' : 'Pack wählen';
   show('view-packs');
 }
+/* Ausführliche Satzauswahl mit Beschreibung – eigener Schritt vor dem Spiel */
+function renderCardSetPicker() {
+  const on = activeSets();
+  const box = $('cs-list');
+  box.innerHTML = allCardSets().map(s => {
+    const n = s.get().length;
+    return `<button class="set-row ${on.includes(s.id) ? 'on' : ''} ${s.adult ? 'adult' : ''} ${n ? '' : 'empty'}"
+              data-set="${s.id}" ${n ? '' : 'disabled'}>
+        <span class="box">✓</span>
+        <span style="flex:1">
+          <span class="l"></span>
+          <span class="d"></span>
+        </span>
+        <span class="n">${n}</span>
+      </button>`;
+  }).join('');
+  const sets = allCardSets();
+  box.querySelectorAll('.set-row').forEach((el, i) => {
+    el.querySelector('.l').textContent = sets[i].label;
+    el.querySelector('.d').textContent = sets[i].desc || '';
+    el.onclick = () => {
+      const cur = new Set(activeSets());
+      cur.has(sets[i].id) ? cur.delete(sets[i].id) : cur.add(sets[i].id);
+      settings.cardSets = [...cur];
+      saveSettings();
+      buzz();
+      renderCardSetPicker();
+    };
+  });
+  const total = cardPool().length;
+  const enough = total >= HAND_SIZE * 2;
+  $('cs-status').textContent = enough
+    ? `${total} Karten im Topf.`
+    : `Nur ${total} Karten – für eine Runde werden mindestens ${HAND_SIZE * 2} gebraucht.`;
+  $('btn-cs-go').disabled = !enough;
+}
 function chooseMode(mode) {
   buzz();
   if ((mode === 'buzzer' || mode === 'match') && !getFbConfig()) {
@@ -2796,6 +2877,11 @@ function chooseMode(mode) {
   }
   game.gameMode = mode;
   if (mode === 'words') { startWordGame(); return; }   // braucht kein Pack
+  if (mode === 'match') {                              // erst Karten, dann Musik
+    renderCardSetPicker();
+    show('view-cardsets');
+    return;
+  }
   openPacks();
 }
 /* ------------------------------------------------------------------
@@ -3577,10 +3663,17 @@ $('btn-settings-back').onclick = () => {
   show(settingsReturn);
 };
 $('btn-packs-back').onclick = () => {
-  // Buzzer-Modus wirklich verlassen → jetzt darf der Raum weg
+  // Beim Perfekten Moment zurück zur Kartenauswahl, sonst zu den Modi
+  if (game.gameMode === 'match') { renderCardSetPicker(); show('view-cardsets'); return; }
   if (room.isHost) hostCloseRoom();
   show('view-modes');
 };
+$('btn-cs-back').onclick = () => {
+  if (room.isHost) hostCloseRoom();
+  show('view-modes');
+};
+$('btn-cs-settings').onclick = openSettings;
+$('btn-cs-go').onclick = () => { buzz(); openPacks(); };
 $('mode-classic').onclick = () => chooseMode('classic');
 $('mode-highlow').onclick = () => chooseMode('highlow');
 $('mode-words').onclick   = () => chooseMode('words');
