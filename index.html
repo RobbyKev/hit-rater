@@ -679,10 +679,12 @@ https://open.spotify.com/playlist/…"></textarea>
 
     <div id="pl-stage" class="hidden" style="display:flex;flex-direction:column;flex:1">
       <div class="pl-state" id="pl-state">Warte auf die Freigabe …</div>
-      <div class="buzz-wrap">
+      <div class="buzz-wrap" id="pl-buzz-wrap">
         <button class="buzzer" id="btn-buzz" disabled>BUZZ</button>
       </div>
+      <div id="pl-reveal" class="reveal-card hidden"></div>
       <div class="pl-result" id="pl-result"></div>
+      <div class="rank-list" id="pl-ranking"></div>
       <div class="pl-score" id="pl-score"></div>
     </div>
   </div>
@@ -750,6 +752,7 @@ https://open.spotify.com/playlist/…"></textarea>
         <div id="bz-qr-box" class="qr-box hidden"></div>
         <div id="bz-players" class="body-sm" style="margin-top:8px"></div>
         <div id="bz-ranking" class="rank-list"></div>
+        <p class="body-sm" id="bz-hint" style="margin-top:8px"></p>
       </div>
       <button class="btn btn-cyan" id="btn-bz-open">🔔 Buzzer freigeben</button>
       <div class="host-buzz-wrap hidden" id="bz-self-wrap">
@@ -1998,9 +2001,11 @@ function renderModeUi() {
     $('bz-self-wrap').classList.add('hidden');
     $('btn-bz-self').classList.remove('armed', 'pressed');
     $('bz-ranking').innerHTML = '';
+    $('bz-hint').textContent = '';
     $('bz-judge').classList.add('hidden');
     room.state = 'locked';
     if (room.ref) room.ref.update({ state: 'locked' }).catch(() => {});
+    clearReveal();                          // alte Auflösung von den Handys nehmen
   }
   $('btn-reveal').classList.toggle('hidden', hasRef || sing);
   $('streak-pill').classList.toggle('hidden', !hl);
@@ -2110,6 +2115,11 @@ function revealTrack(verdict) {
   if (game.gameMode === 'highlow' && Number.isFinite(parseInt(t.year, 10))) game.ref = t;
   if (game.gameMode === 'highlow') {
     $('streak-pill').textContent = `🔥 ${game.streak}` + (settings.bestStreak ? ` · Best ${settings.bestStreak}` : '');
+  }
+  if (game.gameMode === 'buzzer') {
+    publishReveal(t);                      // Gäste sehen dieselbe Auflösung
+    $('bz-judge').classList.add('hidden');
+    $('bz-hint').textContent = '';
   }
   if (verdict !== false) confetti();
 }
@@ -2409,6 +2419,7 @@ async function hostCreateRoom() {
   return code;
 }
 function renderHostPlayers(players) {
+  hostScores = Object.fromEntries(Object.entries(players).map(([uid, p]) => [uid, p.score || 0]));
   const names = Object.entries(players).map(([uid, p]) =>
     `${p.name}${p.score ? ` <span class="score-chip">${p.score}</span>` : ''}`);
   $('bz-players').innerHTML = names.length
@@ -2416,23 +2427,56 @@ function renderHostPlayers(players) {
     : '👥 Noch niemand beigetreten – QR-Code zeigen.';
 }
 let lastRanking = [];
-function renderHostRanking(buzzes) {
-  const list = Object.entries(buzzes)
-    .map(([uid, b]) => ({ uid, ...b }))
-    .filter(b => b.round === game.round)
-    .sort((a, b) => (a.delta ?? 1e9) - (b.delta ?? 1e9) || (a.t ?? 0) - (b.t ?? 0));
-  lastRanking = list;
-  const el = $('bz-ranking');
-  if (!list.length) { el.innerHTML = ''; $('bz-judge').classList.add('hidden'); return; }
-  el.innerHTML = list.map((b, i) => `
+/* Rangliste als HTML – wird bei Host und Gästen gleich dargestellt */
+function rankingHtml(list, scores) {
+  return list.map((b, i) => `
     <div class="rank-row ${i === 0 ? 'first' : ''}">
       <span class="pos">${i + 1}</span>
       <span class="nm"></span>
+      ${scores && scores[b.uid] ? `<span class="score-chip">${scores[b.uid]}</span>` : ''}
       <span class="ms">${fmtReaction(b.delta)}</span>
     </div>`).join('');
-  el.querySelectorAll('.nm').forEach((n, i) => { n.textContent = list[i].name || '?'; });
-  $('bz-judge').classList.remove('hidden');
+}
+function fillNames(el, list) {
+  el.querySelectorAll('.nm').forEach((n, i) => { n.textContent = list[i]?.name || '?'; });
+}
+function sortBuzzes(buzzes, round) {
+  return Object.entries(buzzes || {})
+    .map(([uid, b]) => ({ uid, ...b }))
+    .filter(b => round === undefined || b.round === round)
+    .sort((a, b) => (a.delta ?? 1e9) - (b.delta ?? 1e9) || (a.t ?? 0) - (b.t ?? 0));
+}
+let hostScores = {};
+function renderHostRanking(buzzes) {
+  const list = sortBuzzes(buzzes, game.round);
+  lastRanking = list;
+  const el = $('bz-ranking');
+  const hint = $('bz-hint');
+  if (!list.length) {
+    el.innerHTML = ''; hint.textContent = '';
+    $('bz-judge').classList.add('hidden');
+    return;
+  }
+  el.innerHTML = rankingHtml(list, hostScores);
+  fillNames(el, list);
+  if (!game.revealed) {
+    $('bz-judge').classList.remove('hidden');
+    hint.textContent = `„${list[0].name}" ist dran. ✗ nimmt nur diesen Tipp raus – dann rückt der Nächste vor.`;
+  } else {
+    hint.textContent = '';
+  }
   if (list.length === 1) buzz(40);
+}
+/* Auflösung für die Gäste im Raum veröffentlichen */
+function publishReveal(track) {
+  if (!room.isHost || !room.ref) return;
+  room.ref.child('reveal').set({
+    round: game.round, title: track.title, artist: track.artist,
+    year: String(track.year), cover: track.cover || '', unsure: !!track.unsure,
+  }).catch(() => {});
+}
+function clearReveal() {
+  if (room.isHost && room.ref) room.ref.child('reveal').remove().catch(() => {});
 }
 async function hostOpenBuzzer() {
   if (!room.ref) return;
@@ -2531,17 +2575,47 @@ async function playerJoin(code, name) {
     room.state = snap.val() || 'locked';
     if (room.state !== 'open') armBuzzer(false);
   });
-  watch(room.ref.child('players/' + fb.uid + '/score'), 'value', (snap) => {
-    const s = snap.val() || 0;
-    $('pl-score').textContent = s ? `Deine Punkte: ${s}` : '';
+  let playerScores = {};
+  watch(room.ref.child('players'), 'value', (snap) => {
+    const players = snap.val() || {};
+    playerScores = Object.fromEntries(Object.entries(players).map(([u, p]) => [u, p.score || 0]));
+    const board = Object.values(players)
+      .filter(p => p.score)
+      .sort((a, b) => b.score - a.score)
+      .map(p => `${p.name}: ${p.score}`)
+      .join(' · ');
+    $('pl-score').textContent = board ? '🏆 ' + board : '';
   });
   watch(room.ref.child('buzzes'), 'value', (snap) => {
-    const all = snap.val() || {};
-    const mine = all[fb.uid];
-    if (!mine) { $('pl-result').textContent = ''; return; }
-    const sorted = Object.values(all).sort((a, b) => (a.delta ?? 1e9) - (b.delta ?? 1e9));
-    const pos = sorted.findIndex(b => b.delta === mine.delta) + 1;
-    $('pl-result').textContent = `${fmtReaction(mine.delta)} · Platz ${pos}`;
+    const list = sortBuzzes(snap.val());
+    const el = $('pl-ranking');
+    el.innerHTML = rankingHtml(list, playerScores);
+    fillNames(el, list);
+    const mine = list.findIndex(b => b.uid === fb.uid);
+    $('pl-result').textContent = mine >= 0
+      ? `Du: ${fmtReaction(list[mine].delta)} · Platz ${mine + 1}` : '';
+  });
+  // Auflösung, sobald der Gastgeber aufdeckt
+  watch(room.ref.child('reveal'), 'value', (snap) => {
+    const r = snap.val();
+    const box = $('pl-reveal');
+    if (!r) {
+      box.classList.add('hidden');
+      $('pl-buzz-wrap').classList.remove('hidden');
+      return;
+    }
+    box.innerHTML = `
+      ${r.cover ? `<img src="${r.cover}" alt="Cover">` : ''}
+      <div class="reveal-year mono ${r.unsure ? 'unsure' : ''}">${r.year}</div>
+      ${r.unsure ? '<div class="unsure-tag">⚠️ Jahr unsicher</div>' : ''}
+      <div class="reveal-title"></div>
+      <div class="reveal-artist"></div>`;
+    box.querySelector('.reveal-title').textContent = r.title || '';
+    box.querySelector('.reveal-artist').textContent = r.artist || '';
+    box.classList.remove('hidden');
+    $('pl-buzz-wrap').classList.add('hidden');     // Buzzer weg, Auflösung im Blick
+    $('pl-state').textContent = 'Auflösung';
+    $('pl-state').classList.remove('open');
   });
 }
 function armBuzzer(on) {
@@ -2730,9 +2804,14 @@ async function route(skipSplash = false) {
   if (pendingRoomCode) {
     // Konfiguration aus dem Link übernehmen, falls sie mitgeschickt wurde
     const packed = new URLSearchParams(location.search).get('c');
-    if (packed && !getFbConfig()) {
-      const cfg = unpackFbConfig(packed);
-      if (cfg?.apiKey && cfg?.databaseURL) store.set('hitrater_fb_config', cfg);
+    if (packed) {
+      if (!getFbConfig()) {
+        const cfg = unpackFbConfig(packed);
+        if (cfg?.apiKey && cfg?.databaseURL) store.set('hitrater_fb_config', cfg);
+      }
+      // Die lange Konfiguration sofort aus der Adresszeile nehmen: sie ist
+      // unschön, verwirrt Gäste und würde beim Weiterleiten mitwandern.
+      history.replaceState(null, '', location.pathname + '?r=' + pendingRoomCode);
     }
     $('pl-room').textContent = 'Raum ' + pendingRoomCode;
     $('pl-room-code').textContent = pendingRoomCode;
