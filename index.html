@@ -271,6 +271,20 @@ code.uri {
   background: var(--bg-dark); font-size: .88rem;
 }
 .rank-row.first { background: rgba(0,242,254,.14); border: 1px solid rgba(0,242,254,.5); }
+.rank-row.ok { background: rgba(16,185,129,.16); border: 1px solid rgba(16,185,129,.55); }
+.rank-row.no { opacity: .5; }
+.rank-row .mark { font-weight: 800; }
+.rank-row .mark.ok { color: #6ee7b7; }
+.rank-row .mark.no { color: #f9a8d4; }
+.rank-row .judge { display: flex; gap: 6px; flex-shrink: 0; }
+.jbtn {
+  width: 34px; height: 34px; border-radius: 10px; border: 1px solid rgba(255,255,255,.16);
+  background: var(--surface-card); color: var(--text-muted); font-size: .95rem; font-weight: 700;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.jbtn:active { transform: scale(.92); }
+.jbtn.ok.on { background: var(--success-green); border-color: var(--success-green); color: #fff; }
+.jbtn.no.on { background: var(--primary-glow); border-color: var(--primary-glow); color: #fff; }
 .rank-row .pos { font-family: var(--font-mono); font-weight: 700; color: var(--text-muted); width: 20px; }
 .rank-row .nm { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rank-row .ms { font-family: var(--font-mono); font-size: .8rem; color: var(--amber); }
@@ -757,10 +771,6 @@ https://open.spotify.com/playlist/…"></textarea>
       <button class="btn btn-cyan" id="btn-bz-open">🔔 Buzzer freigeben</button>
       <div class="host-buzz-wrap hidden" id="bz-self-wrap">
         <button class="buzzer host" id="btn-bz-self">BUZZ</button>
-      </div>
-      <div class="hl-row hidden" id="bz-judge">
-        <button class="btn btn-primary" id="btn-bz-ok">✓ Punkt</button>
-        <button class="btn btn-ghost" id="btn-bz-no">✗ Weiter freigeben</button>
       </div>
     </div>
 
@@ -2002,7 +2012,7 @@ function renderModeUi() {
     $('btn-bz-self').classList.remove('armed', 'pressed');
     $('bz-ranking').innerHTML = '';
     $('bz-hint').textContent = '';
-    $('bz-judge').classList.add('hidden');
+    lastBuzzes = {}; hostJudged = {};
     room.state = 'locked';
     if (room.ref) room.ref.update({ state: 'locked' }).catch(() => {});
     clearReveal();                          // alte Auflösung von den Handys nehmen
@@ -2118,8 +2128,8 @@ function revealTrack(verdict) {
   }
   if (game.gameMode === 'buzzer') {
     publishReveal(t);                      // Gäste sehen dieselbe Auflösung
-    $('bz-judge').classList.add('hidden');
-    $('bz-hint').textContent = '';
+    renderHostRanking(lastBuzzes);         // jetzt erst erscheinen die ✓/✗-Knöpfe
+    if (room.ref) room.ref.update({ state: 'locked' }).catch(() => {});
   }
   if (verdict !== false) confetti();
 }
@@ -2415,7 +2425,8 @@ async function hostCreateRoom() {
   const qr = $('bz-qr-box');
   qr.innerHTML = ''; delete qr.dataset.done; qr.classList.add('hidden');
   watch(room.ref.child('players'), 'value', (snap) => renderHostPlayers(snap.val() || {}));
-  watch(room.ref.child('buzzes'), 'value', (snap) => renderHostRanking(snap.val() || {}));
+  watch(room.ref.child('buzzes'), 'value', (snap) => { lastBuzzes = snap.val() || {}; renderHostRanking(lastBuzzes); });
+  watch(room.ref.child('judged'), 'value', (snap) => { hostJudged = snap.val() || {}; renderHostRanking(lastBuzzes); });
   return code;
 }
 function renderHostPlayers(players) {
@@ -2426,16 +2437,30 @@ function renderHostPlayers(players) {
     ? `👥 ${names.length}: ` + names.join(' · ')
     : '👥 Noch niemand beigetreten – QR-Code zeigen.';
 }
-let lastRanking = [];
-/* Rangliste als HTML – wird bei Host und Gästen gleich dargestellt */
-function rankingHtml(list, scores) {
-  return list.map((b, i) => `
-    <div class="rank-row ${i === 0 ? 'first' : ''}">
-      <span class="pos">${i + 1}</span>
-      <span class="nm"></span>
-      ${scores && scores[b.uid] ? `<span class="score-chip">${scores[b.uid]}</span>` : ''}
-      <span class="ms">${fmtReaction(b.delta)}</span>
-    </div>`).join('');
+let lastRanking = [], lastBuzzes = {};
+/* Rangliste als HTML – wird bei Host und Gästen gleich dargestellt.
+   judged: { uid: 1 (richtig) | -1 (falsch) }, interactive: Bewertungsknöpfe */
+function rankingHtml(list, scores, judged = {}, interactive = false) {
+  return list.map((b, i) => {
+    const j = judged[b.uid];
+    const cls = j === 1 ? 'ok' : j === -1 ? 'no' : '';
+    const mark = j === 1 ? '<span class="mark ok">✓</span>'
+               : j === -1 ? '<span class="mark no">✗</span>' : '';
+    const buttons = interactive ? `
+      <span class="judge">
+        <button class="jbtn ok ${j === 1 ? 'on' : ''}" data-uid="${b.uid}" data-ok="1">✓</button>
+        <button class="jbtn no ${j === -1 ? 'on' : ''}" data-uid="${b.uid}" data-ok="0">✗</button>
+      </span>` : '';
+    return `
+      <div class="rank-row ${i === 0 ? 'first' : ''} ${cls}">
+        <span class="pos">${i + 1}</span>
+        <span class="nm"></span>
+        ${mark}
+        ${scores && scores[b.uid] ? `<span class="score-chip">${scores[b.uid]}</span>` : ''}
+        <span class="ms">${fmtReaction(b.delta)}</span>
+        ${buttons}
+      </div>`;
+  }).join('');
 }
 function fillNames(el, list) {
   el.querySelectorAll('.nm').forEach((n, i) => { n.textContent = list[i]?.name || '?'; });
@@ -2446,7 +2471,7 @@ function sortBuzzes(buzzes, round) {
     .filter(b => round === undefined || b.round === round)
     .sort((a, b) => (a.delta ?? 1e9) - (b.delta ?? 1e9) || (a.t ?? 0) - (b.t ?? 0));
 }
-let hostScores = {};
+let hostScores = {}, hostJudged = {};
 function renderHostRanking(buzzes) {
   const list = sortBuzzes(buzzes, game.round);
   lastRanking = list;
@@ -2454,18 +2479,37 @@ function renderHostRanking(buzzes) {
   const hint = $('bz-hint');
   if (!list.length) {
     el.innerHTML = ''; hint.textContent = '';
-    $('bz-judge').classList.add('hidden');
     return;
   }
-  el.innerHTML = rankingHtml(list, hostScores);
+  // Bewertet wird erst nach dem Aufdecken – vorher kennt niemand die Antwort.
+  const canJudge = game.revealed;
+  el.innerHTML = rankingHtml(list, hostScores, hostJudged, canJudge);
   fillNames(el, list);
-  if (!game.revealed) {
-    $('bz-judge').classList.remove('hidden');
-    hint.textContent = `„${list[0].name}" ist dran. ✗ nimmt nur diesen Tipp raus – dann rückt der Nächste vor.`;
+  if (canJudge) {
+    el.querySelectorAll('.jbtn').forEach(btn => {
+      btn.onclick = () => judgePlayer(btn.dataset.uid, btn.dataset.ok === '1');
+    });
+    hint.textContent = 'Wer lag richtig? Der Reihe nach bewerten – mehrere Häkchen sind erlaubt.';
   } else {
-    hint.textContent = '';
+    hint.textContent = `„${list[0].name}" war zuerst dran. Erst auflösen, dann bewerten.`;
   }
   if (list.length === 1) buzz(40);
+}
+/* Einen Spieler bewerten. Nochmaliges Antippen nimmt die Bewertung zurück,
+   der Punkt wird dabei sauber wieder abgezogen. */
+async function judgePlayer(uid, correct) {
+  if (!room.ref) return;
+  buzz(20);
+  const ref = room.ref.child('judged/' + uid);
+  const cur = (await ref.get()).val() || 0;
+  const want = correct ? 1 : -1;
+  const next = cur === want ? 0 : want;
+  const delta = (next === 1 ? 1 : 0) - (cur === 1 ? 1 : 0);
+  if (delta !== 0) {
+    await room.ref.child('players/' + uid + '/score')
+      .transaction(v => Math.max(0, (v || 0) + delta));
+  }
+  await ref.set(next || null);
 }
 /* Auflösung für die Gäste im Raum veröffentlichen */
 function publishReveal(track) {
@@ -2482,6 +2526,7 @@ async function hostOpenBuzzer() {
   if (!room.ref) return;
   buzz();
   await room.ref.child('buzzes').remove();
+  await room.ref.child('judged').remove();
   // openSeq zählt bei JEDER Freigabe hoch. Würden die Spieler nur auf
   // state lauschen, käme bei einer zweiten Freigabe im selben Zustand
   // („open" → „open") gar kein Ereignis an und die Buzzer blieben gesperrt.
@@ -2493,28 +2538,13 @@ async function hostOpenBuzzer() {
   room.state = 'open';
   room.t0 = performance.now();
   $('bz-ranking').innerHTML = '';
-  $('bz-judge').classList.add('hidden');
+  lastBuzzes = {}; hostJudged = {};
   $('btn-bz-open').textContent = '🔔 Buzzer ist frei';
   const self = $('btn-bz-self');
   self.disabled = false;
   self.classList.remove('pressed');
   self.classList.add('armed');
   $('bz-self-wrap').classList.remove('hidden');
-}
-async function hostJudge(correct) {
-  const first = lastRanking[0];
-  if (!first) return;
-  buzz(25);
-  if (correct) {
-    const scoreRef = room.ref.child(`players/${first.uid}/score`);
-    await scoreRef.transaction(v => (v || 0) + 1);
-    await room.ref.update({ state: 'locked' });
-    $('bz-judge').classList.add('hidden');
-    reveal();
-  } else {
-    // Falsch geraten: dieser Buzz fliegt raus, die anderen dürfen weiter
-    await room.ref.child('buzzes/' + first.uid).remove();
-  }
 }
 async function hostCloseRoom() {
   try { if (room.ref) { room.ref.onDisconnect().cancel(); await room.ref.remove(); } } catch {}
@@ -2586,15 +2616,18 @@ async function playerJoin(code, name) {
       .join(' · ');
     $('pl-score').textContent = board ? '🏆 ' + board : '';
   });
-  watch(room.ref.child('buzzes'), 'value', (snap) => {
-    const list = sortBuzzes(snap.val());
+  let plBuzzes = {}, plJudged = {};
+  const drawPlayerRanking = () => {
+    const list = sortBuzzes(plBuzzes);
     const el = $('pl-ranking');
-    el.innerHTML = rankingHtml(list, playerScores);
+    el.innerHTML = rankingHtml(list, playerScores, plJudged, false);
     fillNames(el, list);
     const mine = list.findIndex(b => b.uid === fb.uid);
     $('pl-result').textContent = mine >= 0
       ? `Du: ${fmtReaction(list[mine].delta)} · Platz ${mine + 1}` : '';
-  });
+  };
+  watch(room.ref.child('buzzes'), 'value', (snap) => { plBuzzes = snap.val() || {}; drawPlayerRanking(); });
+  watch(room.ref.child('judged'), 'value', (snap) => { plJudged = snap.val() || {}; drawPlayerRanking(); });
   // Auflösung, sobald der Gastgeber aufdeckt
   watch(room.ref.child('reveal'), 'value', (snap) => {
     const r = snap.val();
@@ -2701,8 +2734,6 @@ $('mode-sing').onclick    = () => chooseMode('sing');
 $('mode-buzzer').onclick  = () => chooseMode('buzzer');
 $('btn-bz-open').onclick  = () => hostOpenBuzzer().catch(e => alert(e.message));
 $('btn-bz-self').onclick  = () => hostSelfBuzz().catch(() => {});
-$('btn-bz-ok').onclick    = () => hostJudge(true).catch(e => alert(e.message));
-$('btn-bz-no').onclick    = () => hostJudge(false).catch(e => alert(e.message));
 $('btn-bz-qr').onclick    = showRoomQr;
 $('btn-buzz').onclick     = doBuzz;
 $('btn-pl-join').onclick  = async () => {
