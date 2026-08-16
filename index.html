@@ -598,6 +598,13 @@ code.uri {
       <span class="title" style="flex:1" id="packs-title">Pack wählen</span>
       <button class="icon-btn" id="btn-settings2" title="Einstellungen">⚙️</button>
     </div>
+    <!-- Nur im Match-Modus: Kartenkategorien direkt vor dem Spiel wählen -->
+    <div class="card hidden" id="packs-cards">
+      <h2 class="h2">🎴 Welche Karten sollen mitspielen?</h2>
+      <div class="chips" id="packs-cardset-chips"></div>
+      <div id="packs-cardset-status" class="body-sm" style="margin-top:10px"></div>
+      <p class="body-sm" style="margin-top:8px">Eigene Kategorien legst du in den Einstellungen an.</p>
+    </div>
     <div id="scope-note" class="note hidden">
       🔊 Für volle Songs braucht Snippet eine erweiterte Spotify-Berechtigung.
       <button class="btn btn-primary btn-sm" id="btn-relogin" style="margin-top:10px">Jetzt neu anmelden</button>
@@ -741,6 +748,8 @@ https://open.spotify.com/playlist/…"></textarea>
       <button class="btn btn-ghost" id="btn-logout">Von Spotify abmelden</button>
       <p class="body-sm" style="margin-top:14px">Redirect URI dieser Installation:</p>
       <code class="uri" id="redirect-uri-display2"></code>
+      <p class="body-sm" style="margin-top:12px">Version: <b id="app-version"></b><br>
+        Zeigt ein Gast eine ältere Version, hat sein Browser eine alte Fassung gespeichert – dort einmal neu laden.</p>
     </div>
   </div>
 
@@ -760,6 +769,7 @@ https://open.spotify.com/playlist/…"></textarea>
       </div>
       <button class="btn btn-primary" id="btn-pl-join">Beitreten</button>
       <div id="pl-err" class="err hidden"></div>
+      <p class="body-sm" style="margin-top:12px;text-align:center">Version <span id="pl-version"></span></p>
     </div>
 
     <div id="pl-stage" class="hidden" style="display:flex;flex-direction:column;flex:1">
@@ -865,6 +875,15 @@ https://open.spotify.com/playlist/…"></textarea>
         <div id="mt-err" class="err hidden"></div>
         <div id="mt-plays" class="play-list"></div>
       </div>
+      <!-- Kartensätze auch mitten im Spiel umschaltbar -->
+      <div class="card" style="padding:14px">
+        <div class="buzz-head">
+          <span class="body-sm">🎴 Kartensätze</span>
+          <button class="btn btn-ghost btn-sm" id="btn-mt-sets">Ändern</button>
+        </div>
+        <div class="chips hidden" id="mt-sets" style="margin-top:10px"></div>
+        <div id="mt-sets-status" class="body-sm" style="margin-top:8px"></div>
+      </div>
       <!-- Der Gastgeber spielt mit und braucht deshalb eine eigene Hand -->
       <div class="card" id="mt-hand-card" style="padding:14px">
         <h2 class="h2" style="margin-bottom:8px">🖐 Deine Karten</h2>
@@ -917,6 +936,9 @@ const SCOPES = [
   'user-modify-playback-state',
   'user-read-playback-state',
 ].join(' ');
+/* Sichtbare Version: So lässt sich prüfen, ob ein Gast noch eine alte,
+   zwischengespeicherte Fassung der Seite geladen hat. */
+const APP_VERSION = '2026-08-16-a';
 const REDIRECT_URI = location.origin + location.pathname;
 const LEN_STEPS = [15, 30, 45, 0];          // 0 = ganzer Song
 const RING_C = 2 * Math.PI * 46;   // muss zum r-Wert im SVG passen
@@ -2446,6 +2468,9 @@ async function runRound(autoplay) {
 
   // Der Song startet erst auf Tastendruck – so hat der Gastgeber die Runde
   // in der Hand und niemand wird von losspielender Musik überrascht.
+  // Ausnahme: Beim Perfekten Moment wird nichts geraten, da darf die Musik
+  // sofort loslaufen.
+  if (game.gameMode === 'match') autoplay = true;
   game.started = false;
   const waitingHint = game.gameMode === 'buzzer'
     ? '▶ Play startet den Song und gibt gleichzeitig die Buzzer frei'
@@ -2591,6 +2616,7 @@ function renderModeUi() {
   if (mt) {
     $('mt-code').textContent = room.code || '–';
     const qr = $('mt-qr-box'); qr.classList.add('hidden');
+    renderCardSets('mt-sets', 'mt-sets-status');
     matchNewRound();
   }
   const hasRef = hl && !!game.ref;
@@ -3021,7 +3047,11 @@ async function hostCreateRoom() {
     qr.innerHTML = ''; delete qr.dataset.done; qr.classList.add('hidden');
   });
   $('mt-code').textContent = code;
-  watch(room.ref.child('players'), 'value', (snap) => renderHostPlayers(snap.val() || {}));
+  watch(room.ref.child('players'), 'value', (snap) => {
+    renderHostPlayers(snap.val() || {});
+    // Wer mitten im Spiel dazukommt, bekommt sofort eine Hand
+    if (game.gameMode === 'match') matchDeal().catch(() => {});
+  });
   watch(room.ref.child('buzzes'), 'value', (snap) => { lastBuzzes = snap.val() || {}; renderHostRanking(lastBuzzes); });
   watch(room.ref.child('judged'), 'value', (snap) => { hostJudged = snap.val() || {}; renderHostRanking(lastBuzzes); });
   watch(room.ref.child('match/plays'), 'value', (snap) => {
@@ -3557,8 +3587,14 @@ $('mode-words').onclick   = () => chooseMode('words');
 $('mode-sing').onclick    = () => chooseMode('sing');
 $('mode-match').onclick   = () => chooseMode('match');
 $('btn-mt-reveal').onclick = () => matchReveal().catch(e => alert(e.message));
-$('btn-mt-next').onclick   = () => { buzz(); nextRound(false); };
+// Im Match-Modus wird nichts geraten – der nächste Song darf gleich loslegen.
+$('btn-mt-next').onclick   = () => { buzz(); nextRound(true); };
 $('btn-mt-qr').onclick     = () => showRoomQr('mt-qr-box');
+$('btn-mt-sets').onclick   = () => {
+  const box = $('mt-sets');
+  box.classList.toggle('hidden');
+  if (!box.classList.contains('hidden')) renderCardSets('mt-sets', 'mt-sets-status');
+};
 $('mode-buzzer').onclick  = () => chooseMode('buzzer');
 $('btn-bz-open').onclick  = () => hostOpenBuzzer().catch(e => alert(e.message));
 $('btn-bz-self').onclick  = () => hostSelfBuzz().catch(() => {});
@@ -3690,9 +3726,11 @@ function renderOwnContent() {
     ? 'Nur eigene Wörter' : 'Eigene + mitgelieferte';
   renderCardSets();
 }
-function renderCardSets() {
+/* Zeichnet die Satzauswahl – identisch in den Einstellungen und im Spiel */
+function renderCardSets(boxId = 'cardset-chips', statusId = 'cardset-status') {
   const on = activeSets();
-  const box = $('cardset-chips');
+  const box = $(boxId);
+  if (!box) return;
   box.innerHTML = allCardSets().map(s => {
     const n = s.get().length;
     return `<button class="chip ${on.includes(s.id) ? 'on' : ''} ${s.adult ? 'adult' : ''}"
@@ -3704,12 +3742,15 @@ function renderCardSets() {
       const cur = new Set(activeSets());
       cur.has(id) ? cur.delete(id) : cur.add(id);
       settings.cardSets = [...cur];
-      saveSettings(); renderCardSets();
+      saveSettings();
+      renderCardSets('cardset-chips', 'cardset-status');
+      renderCardSets('mt-sets', 'mt-sets-status');
     };
   });
   const total = cardPool().length;
-  $('cardset-status').textContent = total
-    ? `${total} Karten im Spiel.`
+  const st = $(statusId);
+  if (st) st.textContent = total
+    ? `${total} Karten im Topf.`
     : '⚠️ Kein Satz gewählt – bitte mindestens einen antippen.';
 }
 $('btn-save-words').onclick = () => {
@@ -3763,6 +3804,7 @@ $('btn-back').onclick   = leaveGame;
 async function route(skipSplash = false) {
   $('redirect-uri-display').textContent = REDIRECT_URI;
   $('redirect-uri-display2').textContent = REDIRECT_URI;
+  $('app-version').textContent = APP_VERSION;
   if (!skipSplash) { show('view-splash'); return; }
   if (!store.get(LS.clientId)) { show('view-setup'); return; }
   const token = await getToken();
@@ -3788,6 +3830,7 @@ async function route(skipSplash = false) {
     }
     $('pl-room').textContent = 'Raum ' + pendingRoomCode;
     $('pl-room-code').textContent = pendingRoomCode;
+    $('pl-version').textContent = APP_VERSION;
     $('inp-pl-name').value = store.get('hitrater_player_name', '') || '';
     show('view-player');
     if (!getFbConfig()) {
