@@ -319,6 +319,35 @@ code.uri {
   font-size: 1.3rem; color: var(--amber); min-height: 32px; }
 .pl-score { text-align: center; font-size: .86rem; color: var(--text-muted); margin-top: 4px; }
 
+/* ===== Perfekter Moment ===== */
+.mode-card.match .ico { background: linear-gradient(145deg, #F59E0B, #10B981); color: #04121f; }
+.now-playing {
+  background: var(--bg-dark); border: 1px solid rgba(245,158,11,.35); border-radius: 12px;
+  padding: 11px 14px; text-align: center;
+}
+.now-playing .t { font-family: var(--font-heading); font-weight: 700; font-size: .98rem; }
+.now-playing .a { font-size: .8rem; color: var(--text-muted); margin-top: 2px; }
+.now-playing .y { font-family: var(--font-mono); font-weight: 700; color: var(--amber); font-size: .82rem; margin-top: 4px; }
+/* Handkarten */
+.hand { display: flex; flex-direction: column; gap: 10px; }
+.hand-card {
+  background: var(--surface-card); border: 1px solid rgba(245,158,11,.3); border-radius: 14px;
+  padding: 14px 16px; font-size: .92rem; line-height: 1.45; cursor: pointer; color: var(--text);
+  font-family: var(--font-body); text-align: left; transition: all .15s;
+}
+.hand-card:active { transform: scale(.98); border-color: var(--amber); background: var(--surface-2); }
+.hand-card.played { border-color: var(--success-green); background: rgba(16,185,129,.14); }
+/* Abgegebene Karten beim Gastgeber */
+.play-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.play-card {
+  background: var(--bg-dark); border: 1px solid rgba(255,255,255,.12); border-radius: 12px;
+  padding: 12px 14px; font-size: .88rem; line-height: 1.45; cursor: pointer; color: var(--text);
+  font-family: var(--font-body); text-align: left; position: relative;
+}
+.play-card:active { transform: scale(.99); }
+.play-card.winner { border-color: var(--success-green); background: rgba(16,185,129,.16); }
+.play-card .who { display: block; font-size: .74rem; color: var(--text-muted); margin-top: 6px; }
+
 /* ===== Weitersingen ===== */
 .mode-card.sing .ico { background: linear-gradient(145deg, #F59E0B, #EC4899); }
 .sing-banner {
@@ -512,6 +541,13 @@ code.uri {
       <span>
         <span class="t">Buzzer-Party</span>
         <span class="d">Alle buzzern vom eigenen Handy, Beitritt per QR-Code. Wer zuerst drückt, darf antworten.</span>
+      </span>
+    </button>
+    <button class="mode-card match" id="mode-match">
+      <span class="ico">🎴</span>
+      <span>
+        <span class="t">Perfekter Moment</span>
+        <span class="d">Der Song läuft offen – jeder spielt die Situationskarte, die am besten passt. Die Runde kürt den besten Treffer.</span>
       </span>
     </button>
     <button class="mode-card sing" id="mode-sing">
@@ -729,6 +765,13 @@ https://open.spotify.com/playlist/…"></textarea>
       <div class="buzz-wrap" id="pl-buzz-wrap">
         <button class="buzzer" id="btn-buzz" disabled>BUZZ</button>
       </div>
+      <!-- Perfekter Moment: eigene Handkarten -->
+      <div id="pl-match" class="hidden">
+        <div class="now-playing" id="pl-song"></div>
+        <div class="body-sm" id="pl-match-hint" style="text-align:center;margin:10px 0"></div>
+        <div class="hand" id="pl-hand"></div>
+      </div>
+
       <div id="pl-reveal" class="reveal-card hidden"></div>
       <div class="pl-result" id="pl-result"></div>
       <div class="rank-list" id="pl-ranking"></div>
@@ -805,6 +848,22 @@ https://open.spotify.com/playlist/…"></textarea>
       <div class="host-buzz-wrap hidden" id="bz-self-wrap">
         <button class="buzzer host" id="btn-bz-self">BUZZ</button>
       </div>
+    </div>
+
+    <!-- Perfekter Moment (nur im Match-Modus) -->
+    <div id="match-panel" class="hidden">
+      <div class="card" style="padding:14px">
+        <div class="buzz-head">
+          <span class="body-sm">Raum <b class="mono" id="mt-code"></b></span>
+          <button class="btn btn-ghost btn-sm" id="btn-mt-qr">QR anzeigen</button>
+        </div>
+        <div id="mt-qr-box" class="qr-box hidden"></div>
+        <div class="now-playing" id="mt-song"></div>
+        <div id="mt-status" class="body-sm" style="margin-top:8px"></div>
+        <div id="mt-plays" class="play-list"></div>
+      </div>
+      <button class="btn btn-cyan" id="btn-mt-reveal">🎴 Karten aufdecken</button>
+      <button class="btn btn-primary hidden" id="btn-mt-next">Nächste Runde ›</button>
     </div>
 
     <div id="reveal-box" class="reveal-card hidden"></div>
@@ -2287,9 +2346,11 @@ async function startGame(packIndex) {
     try { await sdkPlayer.activateElement(); sdkActivated = true; } catch {}
   }
   startSdkPoll();
-  if (game.gameMode === 'buzzer') {
-    try { await hostEnsureRoom(); }
-    catch (e) { alert('Buzzer-Raum konnte nicht angelegt werden:\n' + e.message); }
+  if (game.gameMode === 'buzzer' || game.gameMode === 'match') {
+    try {
+      await hostEnsureRoom();
+      if (game.gameMode === 'match') { $('mt-code').textContent = room.code; await matchDeal(); }
+    } catch (e) { alert('Raum konnte nicht angelegt werden:\n' + e.message); }
   }
   nextRound(false);      // erste Runde ebenfalls per Play starten
 }
@@ -2331,6 +2392,18 @@ async function runRound(autoplay) {
   $('game-round').textContent = `Runde ${game.round}` + (left > 0 ? ` · ${left} übrig` : '');
   $('game-pack').textContent = pack.name;
   renderModeUi();
+  // Im Match-Modus wird nichts geraten: Der Song steht offen da.
+  if (game.gameMode === 'match') {
+    const info = `<div class="t"></div><div class="a"></div><div class="y mono">${track.year}</div>`;
+    $('mt-song').innerHTML = info;
+    $('mt-song').querySelector('.t').textContent = track.title;
+    $('mt-song').querySelector('.a').textContent = track.artist;
+    if (room.isHost && room.ref) {
+      room.ref.child('nowPlaying').set({
+        title: track.title, artist: track.artist, year: String(track.year), cover: track.cover || '',
+      }).catch(() => {});
+    }
+  }
   // Jahr im Hintergrund prüfen, während der Song läuft
   if (settings.fixYears && !track.checked && track.src !== 'manuell') {
     verifyYearLive(track.id, game.packIndex);
@@ -2481,6 +2554,13 @@ function renderModeUi() {
   const hl = game.gameMode === 'highlow';
   const sing = game.gameMode === 'sing';
   const bz = game.gameMode === 'buzzer';
+  const mt = game.gameMode === 'match';
+  $('match-panel').classList.toggle('hidden', !mt);
+  if (mt) {
+    $('mt-code').textContent = room.code || '–';
+    const qr = $('mt-qr-box'); qr.classList.add('hidden');
+    matchNewRound();
+  }
   const hasRef = hl && !!game.ref;
   $('ref-box').classList.toggle('hidden', !hasRef);
   $('hl-buttons').classList.toggle('hidden', !hasRef);
@@ -2499,7 +2579,7 @@ function renderModeUi() {
     if (room.ref) room.ref.update({ state: 'locked' }).catch(() => {});
     clearReveal();                          // alte Auflösung von den Handys nehmen
   }
-  $('btn-reveal').classList.toggle('hidden', hasRef || sing);
+  $('btn-reveal').classList.toggle('hidden', hasRef || sing || mt);
   $('streak-pill').classList.toggle('hidden', !hl);
   if (sing) {
     $('play-hint').textContent = 'Mithören – und im richtigen Moment „Stopp" drücken.';
@@ -2651,7 +2731,7 @@ function openPacks() {
 }
 function chooseMode(mode) {
   buzz();
-  if (mode === 'buzzer' && !getFbConfig()) {
+  if ((mode === 'buzzer' || mode === 'match') && !getFbConfig()) {
     alert('Für den Buzzer-Modus fehlt noch die Firebase-Konfiguration.\n\nEinstellungen → „Buzzer (Firebase)" → Konfiguration einfügen.');
     openSettings();
     return;
@@ -2903,12 +2983,19 @@ async function hostCreateRoom() {
   });
   room.ref.onDisconnect().remove();          // Raum verschwindet, wenn der Host geht
   $('bz-code').textContent = code;
-  // QR-Zwischenspeicher leeren, sonst zeigt er auf den alten Raum
-  const qr = $('bz-qr-box');
-  qr.innerHTML = ''; delete qr.dataset.done; qr.classList.add('hidden');
+  // QR-Zwischenspeicher leeren, sonst zeigen sie auf den alten Raum
+  ['bz-qr-box', 'mt-qr-box'].forEach(id => {
+    const qr = $(id);
+    qr.innerHTML = ''; delete qr.dataset.done; qr.classList.add('hidden');
+  });
+  $('mt-code').textContent = code;
   watch(room.ref.child('players'), 'value', (snap) => renderHostPlayers(snap.val() || {}));
   watch(room.ref.child('buzzes'), 'value', (snap) => { lastBuzzes = snap.val() || {}; renderHostRanking(lastBuzzes); });
   watch(room.ref.child('judged'), 'value', (snap) => { hostJudged = snap.val() || {}; renderHostRanking(lastBuzzes); });
+  watch(room.ref.child('match/plays'), 'value', (snap) => {
+    matchState.plays = snap.val() || {};
+    if (game.gameMode === 'match') renderMatchHost();
+  });
   return code;
 }
 function renderHostPlayers(players) {
@@ -3034,8 +3121,8 @@ async function hostCloseRoom() {
   room = { code: null, isHost: false, ref: null, listeners: [], t0: 0, state: 'locked', myName: '' };
 }
 /* QR-Code – falls die Bibliothek nicht lädt, bleibt der Link als Text */
-async function showRoomQr() {
-  const box = $('bz-qr-box');
+async function showRoomQr(boxId = 'bz-qr-box') {
+  const box = $(boxId);
   box.classList.toggle('hidden');
   if (box.classList.contains('hidden') || box.dataset.done) return;
   const link = roomLink(room.code);
@@ -3051,6 +3138,115 @@ async function showRoomQr() {
   } catch {
     box.innerHTML = `<div class="qr-link" style="color:#333">QR nicht verfügbar – Link teilen:<br><b>${link}</b></div>`;
   }
+}
+
+/* ============================================================
+   Perfekter Moment
+   Der Song läuft offen und ist von Anfang an sichtbar – geraten wird
+   nichts. Jeder hat verdeckte Handkarten auf dem eigenen Handy und legt
+   die passendste ab; erst wenn alle abgegeben haben, deckt der Gastgeber
+   auf. Genau das kann das Brettspiel nicht.
+   ============================================================ */
+const HAND_SIZE = 7;
+let matchState = { plays: {}, hands: {}, phase: 'collect' };
+
+function shuffled(list) {
+  const a = list.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+/* Karten austeilen: nur an Spieler, die noch keine volle Hand haben.
+   Bereits ausgeteilte Karten bleiben liegen, damit niemand mitten im
+   Spiel seine Hand verliert. */
+async function matchDeal() {
+  if (!room.ref) return;
+  const pool = cardPool();
+  if (pool.length < HAND_SIZE * 2) {
+    alert('Zu wenige Karten. Bitte in den Einstellungen weitere Kartensätze zuschalten.');
+    return;
+  }
+  const players = (await room.ref.child('players').get()).val() || {};
+  const hands = (await room.ref.child('match/hands').get()).val() || {};
+  const inUse = new Set(Object.values(hands).flat());
+  let deck = shuffled(pool.filter(c => !inUse.has(c)));
+  const updates = {};
+  for (const uid of Object.keys(players)) {
+    const hand = hands[uid] || [];
+    while (hand.length < HAND_SIZE) {
+      if (!deck.length) deck = shuffled(pool);      // Stapel erschöpft → neu mischen
+      hand.push(deck.pop());
+    }
+    updates[uid] = hand;
+  }
+  await room.ref.child('match/hands').update(updates);
+}
+async function matchNewRound() {
+  if (!room.ref) return;
+  matchState.phase = 'collect';
+  await room.ref.child('match').update({ round: game.round, phase: 'collect' });
+  await room.ref.child('match/plays').remove();
+  await matchDeal();
+  $('btn-mt-reveal').classList.remove('hidden');
+  $('btn-mt-next').classList.add('hidden');
+  $('mt-plays').innerHTML = '';
+}
+function renderMatchHost() {
+  const players = Object.keys(hostScores || {});
+  const plays = matchState.plays || {};
+  const n = Object.keys(plays).length;
+  const total = Math.max(1, players.length);
+  if (matchState.phase === 'collect') {
+    $('mt-status').textContent = `${n} von ${total} haben abgelegt.`;
+    $('mt-plays').innerHTML = '';
+    $('btn-mt-reveal').disabled = n === 0;
+    $('btn-mt-reveal').textContent = n >= total ? '🎴 Karten aufdecken' : `🎴 Trotzdem aufdecken (${n})`;
+    return;
+  }
+  // Aufgedeckt: alle Einreichungen, Reihenfolge gemischt und ohne Namen
+  const list = matchState.revealOrder || [];
+  $('mt-status').textContent = 'Welche Karte passt am besten? Antippen vergibt den Punkt.';
+  $('mt-plays').innerHTML = list.map(p => `
+    <button class="play-card ${matchState.winner === p.uid ? 'winner' : ''}" data-uid="${p.uid}">
+      <span class="txt"></span>
+      ${matchState.winner ? `<span class="who"></span>` : ''}
+    </button>`).join('');
+  const nodes = $('mt-plays').querySelectorAll('.play-card');
+  nodes.forEach((el, i) => {
+    el.querySelector('.txt').textContent = list[i].card;
+    const who = el.querySelector('.who');
+    if (who) who.textContent = 'von ' + (list[i].name || '?');
+    el.onclick = () => matchPickWinner(list[i].uid);
+  });
+}
+async function matchReveal() {
+  buzz();
+  const plays = matchState.plays || {};
+  matchState.revealOrder = shuffled(Object.entries(plays).map(([uid, p]) => ({ uid, ...p })));
+  matchState.phase = 'reveal';
+  matchState.winner = null;
+  await room.ref.child('match').update({ phase: 'reveal' });
+  $('btn-mt-reveal').classList.add('hidden');
+  $('btn-mt-next').classList.remove('hidden');
+  renderMatchHost();
+}
+async function matchPickWinner(uid) {
+  if (matchState.winner) return;                  // nur einmal küren
+  buzz(30);
+  matchState.winner = uid;
+  await room.ref.child('players/' + uid + '/score').transaction(v => (v || 0) + 1);
+  await room.ref.child('match').update({ winner: uid });
+  // Gespielte Karten aus den Händen nehmen, damit nachgezogen wird
+  const hands = (await room.ref.child('match/hands').get()).val() || {};
+  const updates = {};
+  for (const [u, p] of Object.entries(matchState.plays || {})) {
+    updates[u] = (hands[u] || []).filter(c => c !== p.card);
+  }
+  await room.ref.child('match/hands').update(updates);
+  renderMatchHost();
+  confetti();
 }
 
 /* ---------------- Spieler ---------------- */
@@ -3110,6 +3306,57 @@ async function playerJoin(code, name) {
   };
   watch(room.ref.child('buzzes'), 'value', (snap) => { plBuzzes = snap.val() || {}; drawPlayerRanking(); });
   watch(room.ref.child('judged'), 'value', (snap) => { plJudged = snap.val() || {}; drawPlayerRanking(); });
+  /* --- Perfekter Moment: eigene Hand und Ablage --- */
+  let myHand = [], myPlay = null, matchPhase = null;
+  const drawHand = () => {
+    const box = $('pl-match');
+    if (!matchPhase) { box.classList.add('hidden'); return; }
+    box.classList.remove('hidden');
+    $('pl-buzz-wrap').classList.add('hidden');
+    if (matchPhase === 'reveal') {
+      $('pl-match-hint').textContent = 'Karten sind aufgedeckt – jetzt entscheidet die Runde.';
+      $('pl-hand').innerHTML = '';
+      return;
+    }
+    $('pl-match-hint').textContent = myPlay
+      ? '✅ Abgegeben. Warte auf die anderen …'
+      : 'Welche Karte passt am besten zum Song?';
+    $('pl-hand').innerHTML = myHand.map(c =>
+      `<button class="hand-card ${myPlay === c ? 'played' : ''}"></button>`).join('');
+    $('pl-hand').querySelectorAll('.hand-card').forEach((el, i) => {
+      el.textContent = myHand[i];
+      el.onclick = async () => {
+        if (myPlay) return;                       // eine Karte pro Runde
+        myPlay = myHand[i];
+        buzz(30);
+        drawHand();
+        try {
+          await room.ref.child('match/plays/' + fb.uid).set({
+            card: myPlay, name: room.myName || 'Spieler', t: SV_TIMESTAMP(),
+          });
+        } catch { myPlay = null; drawHand(); }
+      };
+    });
+  };
+  watch(room.ref.child('match/hands/' + fb.uid), 'value', (snap) => {
+    myHand = snap.val() || []; drawHand();
+  });
+  watch(room.ref.child('match/phase'), 'value', (snap) => {
+    const p = snap.val();
+    if (p === 'collect' && matchPhase !== 'collect') myPlay = null;   // neue Runde
+    matchPhase = p; drawHand();
+  });
+  watch(room.ref.child('match/plays/' + fb.uid), 'value', (snap) => {
+    myPlay = snap.val()?.card || null; drawHand();
+  });
+  watch(room.ref.child('nowPlaying'), 'value', (snap) => {
+    const s = snap.val();
+    if (!s) { $('pl-song').innerHTML = ''; return; }
+    $('pl-song').innerHTML = '<div class="t"></div><div class="a"></div>' +
+      `<div class="y mono">${s.year || ''}</div>`;
+    $('pl-song').querySelector('.t').textContent = s.title || '';
+    $('pl-song').querySelector('.a').textContent = s.artist || '';
+  });
   // Auflösung, sobald der Gastgeber aufdeckt
   watch(room.ref.child('reveal'), 'value', (snap) => {
     const r = snap.val();
@@ -3213,10 +3460,14 @@ $('mode-classic').onclick = () => chooseMode('classic');
 $('mode-highlow').onclick = () => chooseMode('highlow');
 $('mode-words').onclick   = () => chooseMode('words');
 $('mode-sing').onclick    = () => chooseMode('sing');
+$('mode-match').onclick   = () => chooseMode('match');
+$('btn-mt-reveal').onclick = () => matchReveal().catch(e => alert(e.message));
+$('btn-mt-next').onclick   = () => { buzz(); nextRound(false); };
+$('btn-mt-qr').onclick     = () => showRoomQr('mt-qr-box');
 $('mode-buzzer').onclick  = () => chooseMode('buzzer');
 $('btn-bz-open').onclick  = () => hostOpenBuzzer().catch(e => alert(e.message));
 $('btn-bz-self').onclick  = () => hostSelfBuzz().catch(() => {});
-$('btn-bz-qr').onclick    = showRoomQr;
+$('btn-bz-qr').onclick    = () => showRoomQr('bz-qr-box');
 $('btn-buzz').onclick     = doBuzz;
 $('btn-pl-join').onclick  = async () => {
   const name = $('inp-pl-name').value.trim();
