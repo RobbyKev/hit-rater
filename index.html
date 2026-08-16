@@ -810,8 +810,14 @@ https://open.spotify.com/playlist/…"></textarea>
       <div class="chips" id="cardset-chips" style="margin-top:10px"></div>
       <div id="cardset-status" class="body-sm" style="margin-top:10px"></div>
 
-      <button class="btn btn-ghost" id="btn-export-content">Eigene Inhalte sichern</button>
-      <p class="body-sm" style="margin-top:8px">Lädt eine Datei herunter – praktisch als Sicherung oder um deine Texte auf ein anderes Gerät zu bringen.</p>
+      <h2 class="h2" style="margin-top:20px">💾 Sichern &amp; übertragen</h2>
+      <button class="btn btn-ghost" id="btn-export-content">Als Datei herunterladen</button>
+      <div class="chips" style="margin-top:12px">
+        <button class="chip" id="btn-cloud-save">☁️ In Firebase sichern</button>
+        <button class="chip" id="btn-cloud-load">⬇️ Aus Firebase holen</button>
+      </div>
+      <div id="cloud-status" class="body-sm" style="margin-top:10px"></div>
+      <p class="body-sm" style="margin-top:8px">Die Firebase-Sicherung ist der bequemste Weg auf ein zweites Gerät: dort dieselbe Konfiguration eintragen und „Aus Firebase holen" drücken.</p>
     </div>
 
     <div class="card">
@@ -1023,7 +1029,7 @@ const SCOPES = [
 ].join(' ');
 /* Sichtbare Version: So lässt sich prüfen, ob ein Gast noch eine alte,
    zwischengespeicherte Fassung der Seite geladen hat. */
-const APP_VERSION = '2026-08-16-a';
+const APP_VERSION = '2026-08-16-b';
 const REDIRECT_URI = location.origin + location.pathname;
 const LEN_STEPS = [15, 30, 45, 0];          // 0 = ganzer Song
 const RING_C = 2 * Math.PI * 46;   // muss zum r-Wert im SVG passen
@@ -3917,6 +3923,62 @@ $('chip-ownwords-only').onclick = () => {
   saveSettings(); renderOwnContent();
   wordState.used = [];
 };
+/* ---- Eigene Inhalte in Firebase sichern ----
+   Bewusst kein automatischer Abgleich: Die anonyme Anmeldung vergibt pro
+   Gerät eine eigene Kennung, und zwei Geräte würden sich sonst gegenseitig
+   überschreiben. Deshalb liegt alles unter einem gemeinsamen Knoten und
+   wird nur auf ausdrücklichen Knopfdruck geschrieben oder geholt. */
+function cloudStatus(msg) { $('cloud-status').textContent = msg; }
+async function cloudSave() {
+  try {
+    cloudStatus('Verbinde …');
+    await connectFirebase();
+    const payload = {
+      words: ownWords(),
+      sets: ownSets(),
+      savedAt: SV_TIMESTAMP(),
+      device: navigator.userAgent.slice(0, 60),
+    };
+    await fb.db.ref('library/content').set(payload);
+    const count = ownSets().reduce((n, s) => n + (s.cards || []).length, 0);
+    cloudStatus(`✅ Gesichert: ${ownWords().length} Wörter, ${ownSets().length} Kategorien, ${count} Karten.`);
+  } catch (e) {
+    cloudStatus('❌ ' + e.message + (String(e.message).toLowerCase().includes('permission')
+      ? ' – sind die aktuellen Firebase-Regeln veröffentlicht?' : ''));
+  }
+}
+async function cloudLoad() {
+  try {
+    cloudStatus('Hole Daten …');
+    await connectFirebase();
+    const snap = await fb.db.ref('library/content').get();
+    const data = snap.val();
+    if (!data) { cloudStatus('Dort liegt noch nichts – erst einmal sichern.'); return; }
+    const words = data.words || [];
+    const sets = data.sets || [];
+    const count = sets.reduce((n, s) => n + (s.cards || []).length, 0);
+    const when = data.savedAt ? new Date(data.savedAt).toLocaleString('de-DE') : 'unbekannt';
+    if (!confirm(`Sicherung vom ${when}:\n${words.length} Wörter, ${sets.length} Kategorien, ${count} Karten.\n\n` +
+                 'Damit werden die Inhalte auf diesem Gerät ersetzt. Fortfahren?')) {
+      cloudStatus('Abgebrochen.');
+      return;
+    }
+    store.set(OWN.words, words);
+    saveOwnSets(sets);
+    // Sätze, die es nicht mehr gibt, aus der Auswahl nehmen
+    const known = new Set(allCardSets().map(s => s.id));
+    settings.cardSets = activeSets().filter(id => known.has(id));
+    if (!settings.cardSets.length) settings.cardSets = ['base'];
+    saveSettings();
+    $('inp-own-words').value = words.join('\n');
+    renderOwnContent(); renderCardSets();
+    cloudStatus(`✅ Übernommen (Stand ${when}).`);
+  } catch (e) {
+    cloudStatus('❌ ' + e.message);
+  }
+}
+$('btn-cloud-save').onclick = cloudSave;
+$('btn-cloud-load').onclick = cloudLoad;
 $('btn-export-content').onclick = () => {
   const data = { words: ownWords(), sets: ownSets() };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
