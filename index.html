@@ -862,7 +862,14 @@ https://open.spotify.com/playlist/…"></textarea>
         <div id="mt-qr-box" class="qr-box hidden"></div>
         <div class="now-playing" id="mt-song"></div>
         <div id="mt-status" class="body-sm" style="margin-top:8px"></div>
+        <div id="mt-err" class="err hidden"></div>
         <div id="mt-plays" class="play-list"></div>
+      </div>
+      <!-- Der Gastgeber spielt mit und braucht deshalb eine eigene Hand -->
+      <div class="card" id="mt-hand-card" style="padding:14px">
+        <h2 class="h2" style="margin-bottom:8px">🖐 Deine Karten</h2>
+        <div class="body-sm" id="mt-hand-hint"></div>
+        <div class="hand" id="mt-hand" style="margin-top:10px"></div>
       </div>
       <button class="btn btn-cyan" id="btn-mt-reveal">🎴 Karten aufdecken</button>
       <button class="btn btn-primary hidden" id="btn-mt-next">Nächste Runde ›</button>
@@ -3019,7 +3026,12 @@ async function hostCreateRoom() {
   watch(room.ref.child('judged'), 'value', (snap) => { hostJudged = snap.val() || {}; renderHostRanking(lastBuzzes); });
   watch(room.ref.child('match/plays'), 'value', (snap) => {
     matchState.plays = snap.val() || {};
-    if (game.gameMode === 'match') renderMatchHost();
+    hostPlay = matchState.plays[fb.uid]?.card || null;
+    if (game.gameMode === 'match') { renderMatchHost(); renderHostHand(); }
+  });
+  watch(room.ref.child('match/hands/' + fb.uid), 'value', (snap) => {
+    hostHand = snap.val() || [];
+    if (game.gameMode === 'match') renderHostHand();
   });
   return code;
 }
@@ -3174,6 +3186,49 @@ async function showRoomQr(boxId = 'bz-qr-box') {
    ============================================================ */
 const HAND_SIZE = 7;
 let matchState = { plays: {}, hands: {}, phase: 'collect' };
+let hostHand = [], hostPlay = null;
+function matchError(msg) {
+  const el = $('mt-err');
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+function matchClearError() { $('mt-err').classList.add('hidden'); }
+/* Handkarten des Gastgebers – er spielt schließlich mit */
+function renderHostHand() {
+  const box = $('mt-hand');
+  const hint = $('mt-hand-hint');
+  if (matchState.phase === 'reveal') {
+    hint.textContent = 'Karten sind aufgedeckt – jetzt kürt die Runde den besten Treffer.';
+    box.innerHTML = '';
+    return;
+  }
+  if (!hostHand.length) {
+    hint.textContent = 'Noch keine Karten – prüfe, ob mindestens ein Kartensatz aktiv ist.';
+    box.innerHTML = '';
+    return;
+  }
+  hint.textContent = hostPlay ? '✅ Abgelegt. Warte auf die anderen …'
+                              : 'Welche Karte passt am besten zum Song?';
+  box.innerHTML = hostHand.map(c => `<button class="hand-card ${hostPlay === c ? 'played' : ''}"></button>`).join('');
+  box.querySelectorAll('.hand-card').forEach((el, i) => {
+    el.textContent = hostHand[i];
+    el.onclick = async () => {
+      if (hostPlay || matchState.phase === 'reveal') return;
+      hostPlay = hostHand[i];
+      buzz(30);
+      renderHostHand();
+      try {
+        matchClearError();
+        await room.ref.child('match/plays/' + fb.uid).set({
+          card: hostPlay, name: hostName(), t: SV_TIMESTAMP(),
+        });
+      } catch (e) {
+        hostPlay = null; renderHostHand();
+        matchError('Karte konnte nicht abgelegt werden: ' + e.message);
+      }
+    };
+  });
+}
 
 function shuffled(list) {
   const a = list.slice();
@@ -3190,7 +3245,8 @@ async function matchDeal() {
   if (!room.ref) return;
   const pool = cardPool();
   if (pool.length < HAND_SIZE * 2) {
-    alert('Zu wenige Karten. Bitte in den Einstellungen weitere Kartensätze zuschalten.');
+    matchError(`Nur ${pool.length} Karten verfügbar – für eine Runde werden mindestens ${HAND_SIZE * 2} gebraucht. ` +
+      'Bitte in den Einstellungen weitere Kartensätze zuschalten.');
     return;
   }
   const players = (await room.ref.child('players').get()).val() || {};
@@ -3209,14 +3265,24 @@ async function matchDeal() {
   await room.ref.child('match/hands').update(updates);
 }
 async function matchNewRound() {
-  if (!room.ref) return;
+  if (!room.ref) { matchError('Kein Raum verbunden – bitte zurück und neu starten.'); return; }
   matchState.phase = 'collect';
-  await room.ref.child('match').update({ round: game.round, phase: 'collect' });
-  await room.ref.child('match/plays').remove();
-  await matchDeal();
+  matchState.winner = null;
+  hostPlay = null;
   $('btn-mt-reveal').classList.remove('hidden');
   $('btn-mt-next').classList.add('hidden');
   $('mt-plays').innerHTML = '';
+  try {
+    matchClearError();
+    await room.ref.child('match').update({ round: game.round, phase: 'collect', winner: null });
+    await room.ref.child('match/plays').remove();
+    await matchDeal();
+    renderHostHand();
+  } catch (e) {
+    // Häufigste Ursache: Die Firebase-Regeln wurden noch nicht neu veröffentlicht.
+    matchError('Runde konnte nicht gestartet werden: ' + e.message +
+      '\nTipp: Sind die aktuellen Regeln in Firebase veröffentlicht?');
+  }
 }
 function renderMatchHost() {
   const players = Object.keys(hostScores || {});
@@ -3252,10 +3318,14 @@ async function matchReveal() {
   matchState.revealOrder = shuffled(Object.entries(plays).map(([uid, p]) => ({ uid, ...p })));
   matchState.phase = 'reveal';
   matchState.winner = null;
-  await room.ref.child('match').update({ phase: 'reveal' });
+  try {
+    matchClearError();
+    await room.ref.child('match').update({ phase: 'reveal' });
+  } catch (e) { matchError('Aufdecken fehlgeschlagen: ' + e.message); }
   $('btn-mt-reveal').classList.add('hidden');
   $('btn-mt-next').classList.remove('hidden');
   renderMatchHost();
+  renderHostHand();
 }
 async function matchPickWinner(uid) {
   if (matchState.winner) return;                  // nur einmal küren
