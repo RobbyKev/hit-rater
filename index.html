@@ -371,6 +371,8 @@ code.uri {
   font-family: var(--font-body); cursor: pointer; transition: all .15s;
 }
 .chip.on { background: rgba(16,185,129,.15); border-color: var(--success-green); color: #6ee7b7; }
+.chip.adult.on { background: rgba(236,72,153,.16); border-color: var(--primary-glow); color: #f9a8d4; }
+.chip:disabled { opacity: .4; }
 
 /* ===== Spiel ===== */
 .game-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
@@ -668,13 +670,15 @@ https://open.spotify.com/playlist/…"></textarea>
       <button class="btn btn-purple" id="btn-save-cards">Karten speichern</button>
       <div id="cards-status" class="body-sm" style="margin-top:8px"></div>
 
-      <label style="margin-top:18px">🔞 Situationskarten ab 18 – eine pro Zeile</label>
+      <label style="margin-top:18px">🔞 Eigene Karten ab 18 – eine pro Zeile</label>
       <textarea id="inp-own-cards18" rows="4" placeholder="Nur für Runden unter Erwachsenen …"></textarea>
-      <div class="chips" style="margin-top:10px">
-        <button class="chip" id="chip-cards18">18+ dazunehmen</button>
-      </div>
       <button class="btn btn-purple" id="btn-save-cards18">18+-Karten speichern</button>
       <div id="cards18-status" class="body-sm" style="margin-top:8px"></div>
+
+      <h2 class="h2" style="margin-top:20px">🎴 Kartensätze für „Perfekter Moment"</h2>
+      <p class="body-sm">Mehrfachauswahl – die angetippten Sätze werden gemischt.</p>
+      <div class="chips" id="cardset-chips" style="margin-top:10px"></div>
+      <div id="cardset-status" class="body-sm" style="margin-top:10px"></div>
 
       <button class="btn btn-ghost" id="btn-export-content">Eigene Inhalte sichern</button>
       <p class="body-sm" style="margin-top:8px">Lädt eine Datei herunter – praktisch als Sicherung oder um deine Texte auf ein anderes Gerät zu bringen.</p>
@@ -1447,7 +1451,7 @@ async function loadMyPlaylists() {
 let settings = Object.assign(
   { mode: 'random', auto: false, showPlayer: false, len: 30, start: 'begin',
     playback: 'full',            // 'full' = ganze Titel (SDK) | 'preview' = 30-Sek-Clip
-    fixYears: true, bestStreak: 0, wordLang: 'both', wordTimer: 0, ownWordsOnly: false, cards18: false },
+    fixYears: true, bestStreak: 0, wordLang: 'both', wordTimer: 0, ownWordsOnly: false, cardSets: ['base'] },
   store.get(LS.settings, {})
 );
 function saveSettings() { store.set(LS.settings, settings); }
@@ -1820,8 +1824,197 @@ const CARDS_BASE = [
   "Wie es sich anfühlt, wenn man die Frischhaltefolie ohne Verknoten abreißt.",
   "Der Vibe, wenn die Tupperdose und ihr Deckel zusammenfinden.",
 ];
-/* 18+: wird nur gespielt, wenn ausdrücklich zugeschaltet. */
-const CARDS_18 = [];
+/* Ab 18 – „Vollrausch": Suff, Kater, Partynächte. */
+const CARDS_NIGHT = [
+  "Der Vibe, wenn der vierte Liter Bier beschließt, den Magen auf dem Beifahrersitz zu verlassen.",
+  "Das spiele ich ab, wenn man am Morgen danach aufwacht und ein Straßenschild im Bett liegen hat.",
+  "Die Melodie für das Gefühl, wenn man sonntags das Auto sucht und nicht mehr weiß, in welcher Stadt es steht.",
+  "Der Soundtrack zum Moment, wenn man die Sprachnachricht abspielt, die man um 4:00 Uhr morgens geschickt hat: „Ich liebe dich immer noch!“",
+  "Wie es sich anfühlt, wenn man am Morgen danach den Kontostand prüft und nur noch 1,20 Euro drauf sind.",
+  "Das läuft bei mir, wenn der Türsteher lacht und sagt: „Heute nicht, mein Freund – und nie wieder.“",
+  "Das spiele ich ab, wenn man am Morgen danach merkt, dass man sich die Haare selbst geschnitten hat.",
+  "Der Vibe, wenn die Polizei beim Kater-Frühstück an den Tisch tritt und fragt: „Gehört das Fahrrad da draußen Ihnen?“",
+  "Das geht mir durch den Kopf, wenn man am nächsten Tag merkt, dass der Geldbeutel noch im Club liegt.",
+  "Der Soundtrack für den Versuch, um 5:00 Uhr morgens unauffällig über den Zaun des Freibads zu klettern.",
+  "Das spiele ich ab, wenn man merkt, dass der Schnaps vom Kiosk nach Nagellackentferner schmeckt.",
+  "Die Melodie für das Gefühlschaos, wenn man morgens aufwacht und das Handy 47 verpasste Anrufe von Mama anzeigt.",
+  "Wie ich mich fühle, wenn ich im Suff beschließe, mir selbst ein Piercing zu stechen.",
+  "Das läuft im Hintergrund, wenn man nach der Party feststellt, dass man die falsche Jacke anhat – und darin 200 Euro liegen.",
+  "Der Vibe, wenn die Sanitäter im Club den Namen wissen wollen und man nur noch seinen Spitznamen herausbringt.",
+  "Das spiele ich ab, wenn man die Nacht auf der Parkbank verbracht hat und von Tauben geweckt wird.",
+  "Die Musik für den Moment, wenn man merkt, dass die komplette Miete im Casino geblieben ist.",
+  "Der Song für die Erkenntnis: „Ich habe gestern Nacht wirklich den Fernseher aus dem Fenster geworfen.“",
+  "Das geht mir durch den Kopf, wenn die Übelkeit im vollen Bus schlagartig einsetzt.",
+  "Der Soundtrack für den Versuch, betrunken eine Dose Ravioli kalt mit den Händen zu essen.",
+  "Das spiele ich ab, wenn die Nachbarn wegen der Musik die Sicherung im Flur rausdrehen.",
+  "Die Melodie für den Moment, wenn man realisiert, dass die Stripperin die eigene Cousine ist.",
+  "Wie es sich anfühlt, wenn der Kater so schlimm ist, dass das Geräusch von fließendem Wasser wehtut.",
+  "Das läuft bei mir, wenn man im Suff einen Vertrag für eine Fitnessstudio-Mitgliedschaft unterschrieben hat.",
+  "Der Vibe, wenn man am Tag danach ein Tattoo von einem Minion an einer Stelle findet, die man selbst nicht sieht.",
+  "Das spiele ich ab, wenn der Ex um 3:00 Uhr nachts schreibt „Bist du wach?“ und man antwortet „Schon unterwegs“.",
+  "Der Soundtrack für den Moment, wenn die eigene Festnahme im Livestream der Kneipe zu sehen ist.",
+  "Das geht mir durch den Kopf, wenn man die Toilettenbrille im Club anfassen muss.",
+  "Wie ich mich fühle, wenn ich im Suff mit dem Taxi 100 Kilometer in die falsche Richtung gefahren bin.",
+  "Das spiele ich ab, wenn man den Döner von gestern Abend auf dem Teppich wiederfindet.",
+  "Die Melodie für das Gefühl, wenn das Bier aus dem Bauchnabel des Sitznachbarn getrunken werden soll.",
+  "Der Vibe, wenn man auf der Tanzfläche stürzt und die Musik exakt in dem Moment aufhört.",
+  "Das läuft im Hintergrund, wenn man am Morgen danach feststellt, dass man live auf Instagram war.",
+  "Der Song für den Versuch, sich mit hochprozentigem Alkohol die Hände zu desinfizieren.",
+  "Das spiele ich ab, wenn man im Club feststellt, dass nur noch ein Bein in der Hose steckt.",
+  "Die Musik für den Moment, wenn der Barkeeper sagt: „Du hast Hausverbot seit 2018.“",
+  "Wie sich der Moment anfühlt, wenn die Spucke im Mund schlagartig mehr wird.",
+  "Der Soundtrack für das Aufwachen im Gebüsch vor dem eigenen Haus.",
+  "Das spiele ich ab, wenn man am Morgen danach feststellt, dass die Haustür die ganze Nacht offen stand.",
+  "Die Melodie für die Erkenntnis, dass der Kater bis Dienstag dauern wird.",
+  "Der Vibe, wenn man im Suff beschließt, den Mitbewohner zu rasieren.",
+  "Das läuft bei mir, wenn man auf der Party die teure Vase der Gastgeber zerbricht und sie hinter die Couch schiebt.",
+  "Der Song für den Moment, wenn der Snackautomat das Geld schluckt und die Tüte hängen bleibt.",
+  "Das spiele ich ab, wenn die Alkoholleiche auf der Couch plötzlich anfängt zu sprechen.",
+  "Die Musik für das peinliche Schweigen, wenn man nach dem Übergeben wieder an den Tisch kommt.",
+  "Wie ich mich fühle, wenn ich realisiere, dass ich dem Taxifahrer mein Handy als Pfand gegeben habe.",
+  "Der Soundtrack für den Moment, wenn der Club dichtmacht und die Realität der Straßenlaternen einen trifft.",
+  "Das läuft im Hintergrund, wenn der Drogentest beim Betriebsarzt rot leuchtet.",
+  "Die Melodie für das Gefühl, wenn man den Drogenhund am Flughafen auf sich zukommen sieht.",
+  "Wie es sich anfühlt, wenn man auf einer Beerdigung lachen muss, weil jemand gefurzt hat.",
+];
+/* Ab 18 – „Ohne Filter": deutlich derber, Erotik und schwarzer Humor. */
+const CARDS_SPICY = [
+  "Der Soundtrack, wenn man versehentlich den falschen Namen im Bett stöhnt.",
+  "Das spiele ich ab, wenn die Schwiegereltern beim Aufräumen die Gleitgel-Flasche unter dem Bett finden.",
+  "Die Melodie für den Moment, wenn der Priester bei der Beerdigung den falschen Namen sagt.",
+  "Der Vibe, wenn man merkt, dass die Überwachungskamera im Schlafzimmer noch auf Aufnahme stand.",
+  "Das läuft im Hintergrund, wenn man dem Arzt erklären muss, wie der Gegenstand dorthin gekommen ist.",
+  "Der Song für den Moment, wenn man feststellt, dass die „Erkältung“ etwas ganz anderes war.",
+  "Wie es sich anfühlt, wenn die Handschellen klemmen und der Schlüssel unauffindbar ist.",
+  "Die Hintergrundmusik, wenn man feststellt, dass der Partner dieselbe Unterwäsche trägt wie die eigene Mutter.",
+  "Das spiele ich laut ab, wenn der Scheidungsanwalt sein Honorar nennt.",
+  "Der Soundtrack für den Versuch, ein Kondom leise im Dunkeln aufzureißen.",
+  "Wie sich der Vibe anfühlt, wenn man nach einem One-Night-Stand die Klamotten vom Boden zusammensucht.",
+  "Das läuft bei mir, wenn die Eltern unangekündigt reinplatzen und man nur noch ein Kissen greifen kann.",
+  "Der Song, wenn der Beipackzettel der Pille danach länger ist als die Bedienungsanleitung des Autos.",
+  "Die Musik, wenn man auf Tinder ein Match mit dem Ex des eigenen Geschwisters hat.",
+  "Das geht mir durch den Kopf, wenn im Familiengruppenchat versehentlich ein Nacktfoto landet.",
+  "Der Vibe, wenn man beim Vorspiel merkt, dass der Socken-Loch-Grad besorgniserregend ist.",
+  "Das spiele ich ab, wenn man den Walk of Shame am Sonntagmorgen an einer Seniorengruppe vorbei antreten muss.",
+  "Die Melodie für den Moment, wenn der Beichtstuhl plötzlich eine Gegensprechanlage bräuchte.",
+  "Der Soundtrack für die Suche nach der Kontaktlinse auf dem Körper des anderen.",
+  "Das läuft im Hintergrund, wenn der Drogentest beim Vorstellungsgespräch positiv ausschlägt.",
+  "Die Musik, wenn der Partner fragt: „War das schon alles?“",
+  "Der Song, der beschreibt, wie Küssen nach einem Döner mit extra Knoblauchsoße ist.",
+  "Das spiele ich ab, wenn man feststellt, dass der Chatverlauf mit der Affäre nicht auf stumm geschaltet war.",
+  "Der Vibe, wenn die Peitsche aus Versehen das falsche Körperteil trifft.",
+  "Das läuft bei mir, wenn die Ärztin sagt: „So etwas habe ich in 30 Jahren noch nicht gesehen.“",
+  "Die Melodie für den Moment, wenn man die Rechnungen für den Junggesellenabschied zusammenrechnet.",
+  "Der Soundtrack für den Versuch, nackt und leise an den WG-Mitbewohnern vorbei ins Bad zu schleichen.",
+  "Wie es sich anfühlt, wenn das Gleitgel auf dem Parkett ausläuft und man ausrutscht.",
+  "Der Song für den Moment, wenn die Tinder-Verabredung überhaupt nicht aussieht wie auf den Fotos.",
+  "Die Hintergrundmusik, wenn man auf der Beerdigung der Erbtante heimlich auf die Uhr schaut.",
+  "Das läuft bei mir, wenn der Vibrator mitten in der Nacht spontan losbrummt.",
+  "Der Vibe, wenn man dem Partner gestehen muss, dass das Auto Totalschaden hat.",
+  "Das spiele ich ab, wenn man auf einer Party aus dem Becher trinkt, der als Aschenbecher diente.",
+  "Die Melodie für den Moment, wenn man den Text der Nationalhymne durch schmutzige Wörter ersetzt.",
+  "Wie ich mich fühle, wenn der Tätowierer ein Wort falsch schreibt und es erst am Ende auffällt.",
+  "Das läuft im Hintergrund, wenn die Polizei an der Tür klopft und man erst mal aufräumen muss.",
+  "Der Song für die Erkenntnis: „Das war kein Furz.“",
+  "Das spiele ich ab, wenn das Gästebett bei den Schwiegereltern extrem laut quietscht.",
+  "Die Musik für das mulmige Gefühl, wenn der Vaterschaftstest vorgelesen wird.",
+  "Der Vibe, wenn man auf dem Flohmarkt gebrauchte Erotik-Artikel entdeckt.",
+  "Das geht mir durch den Kopf, wenn man merkt, dass man beim Flirten die ganze Zeit Petersilie zwischen den Zähnen hatte.",
+  "Der Soundtrack für den peinlichen Moment, wenn die Handschellen nur mit einer Flex aufgehen.",
+  "Das spiele ich ab, wenn die Affäre vor der Haustür steht, während der Partner kocht.",
+  "Die Melodie, wenn man am Morgen danach feststellt, dass die Person neben einem der Ex-Chef ist.",
+  "Wie sich der Moment anfühlt, wenn die Reinigungslösung für die Spielzeuge leer ist.",
+  "Das läuft bei mir, wenn die Nachbarn an die Wand klopfen – aber nicht wegen der Musik.",
+  "Der Song für den epischen Fehlschlag beim Versuch, romantisch zu strippen.",
+  "Das spiele ich ab, wenn ich merke, dass ich das Erbe schon ausgegeben habe, bevor die Erbtante überhaupt krank ist.",
+  "Der Vibe, wenn man beim Sexting den Text an den Chef statt an die Affäre schickt.",
+  "Das läuft im Hintergrund, wenn man im Beichtstuhl die Sünden des Wochenendes aufzählt und der Pfarrer seufzt.",
+  "Der Soundtrack zum Versuch, ein Kondom mit den Zähnen zu öffnen, ohne die Kontrolle zu verlieren.",
+  "Das spiele ich ab, wenn man das Haustier des Partners versehentlich rasiert hat und es vertuschen muss.",
+  "Der Song, wenn der Stripper auf der Party plötzlich das Gesicht eines ehemaligen Klassenkameraden hat.",
+  "Das geht mir durch den Kopf, wenn die Schwiegermutter fragt, was das Lederhalsband im Flur macht.",
+  "Der Vibe, wenn man den Notdienst rufen muss, weil das Spielzeug unauffindbar ist.",
+  "Das läuft bei mir, wenn man auf Tinder aus Versehen das Profil der eigenen Cousine wegwischt.",
+  "Die Musik, wenn man beim Pärchenabend merkt, dass man die Regeln doch nicht so gut verstanden hat.",
+  "Der Soundtrack für das Suchen nach der Unterhose im Gebüsch nach einer Sommernacht.",
+  "Wie ich mich fühle, wenn ich im Hotelzimmer die Flecken auf der Tagesdecke unter Schwarzlicht sehe.",
+  "Das spiele ich ab, wenn der Ex auf der Hochzeit auftaucht und nach dem Mikrofon greift.",
+  "Die Melodie für das Gespräch: „Wir müssen reden … über das, was gestern im Whirlpool passiert ist.“",
+  "Das läuft im Hintergrund, wenn man die Geschenke der Ex-Partner auf dem Flohmarkt verkauft.",
+  "Der Song für den Moment, wenn das Gleitgel den Lack vom Nachttisch frisst.",
+  "Das spiele ich ab, wenn man den Vaterschaftstest online bestellen muss.",
+  "Die Musik für das Entsetzen, wenn der Suchverlauf im Browser vor der Familie auftaucht.",
+  "Der Soundtrack zum Versuch, eine peinliche Tätowierung am Steißbein zu erklären.",
+  "Das läuft bei mir, wenn der Partner die schmutzigen Nachrichten von vor drei Jahren findet.",
+  "Das spiele ich ab, wenn die Eltern fragen, warum auf der Kreditkartenabrechnung ein Abo für Erwachsene steht.",
+  "Die Melodie für den Moment, wenn man am Morgen danach merkt, dass die Tür die ganze Nacht offen stand.",
+  "Der Song für die Erkenntnis, dass die Einladung zum Pärchenclub gar kein Missverständnis war.",
+  "Das geht mir durch den Kopf, wenn man im Etablissement die eigene ehemalige Lehrerin trifft.",
+  "Das spiele ich ab, wenn man bei der Massage merkt, dass der Körper eine ungewollte Reaktion zeigt.",
+  "Die Musik für das peinliche Schweigen, nachdem der Fetisch-Wunsch ausgesprochen wurde.",
+  "Wie sich der Moment anfühlt, wenn die Gleitgel-Tube mit der Zahnpasta verwechselt wird.",
+  "Der Vibe, wenn man die Pille danach an der Tankstelle kaufen muss.",
+  "Das spiele ich ab, wenn die Schaukel aus der Decke bricht.",
+  "Die Melodie für das Gefühl, wenn man feststellt, dass die Party ganz anders gemeint war und man nur als Fahrer mitkam.",
+  "Der Song für den Moment, wenn der Arzt sagt: „Bitte einmal tief durchatmen.“",
+  "Das geht mir durch den Kopf, wenn der Partner im Schlaf schmutzige Dinge murmelt – aber nicht meinen Namen.",
+  "Der Soundtrack für das Auspacken einer sehr eindeutigen Lieferung vor den Augen des Postboten.",
+  "Das spiele ich ab, wenn der Hund während des Intimmoments intensiv zuschaut.",
+  "Wie ich mich fühle, wenn ich realisiere, dass die „Massage mit Ölen“ eine Zusatzgebühr gekostet hat.",
+  "Das läuft bei mir, wenn man auf der Toilette feststellt, dass man auf der falschen ist und es zu spät zum Umdrehen ist.",
+  "Der Vibe, wenn man den Ex auf der Beerdigung einer gemeinsamen Bekannten wiedersieht.",
+  "Das spiele ich ab, wenn das Handgepäck bei der Sicherheitskontrolle anfängt zu vibrieren.",
+  "Die Melodie für den Moment, wenn der Chef fragt, warum das Fleckenmuster auf dem Bürostuhl neu ist.",
+  "Der Song für die schlaue Idee, Chilis zu schneiden und danach aufs Klo zu gehen.",
+  "Das läuft im Hintergrund, wenn man um 5:00 Uhr morgens merkt, dass man die falsche Person nach Hause begleitet hat.",
+  "Der Song, wenn man merkt, dass die Peitsche Spuren hinterlassen hat, die man am Strand nicht erklären kann.",
+  "Das spiele ich ab, wenn der Pärchenclub einen Treuepass anbietet.",
+  "Die Melodie für den Moment, wenn die Gleitgel-Flasche im Koffer ausläuft und alle Klamotten ruiniert.",
+  "Der Vibe, wenn man auf der Arbeit realisiert, dass die Unterwäsche noch auf dem Nachttisch der Affäre liegt.",
+  "Das läuft im Hintergrund, wenn man feststellt, dass der Dübel nicht für das eigene Gewicht ausgelegt war.",
+  "Der Soundtrack für den Versuch, ein sehr spezielles Spray unauffällig in der Drogerie zu kaufen.",
+  "Das spiele ich ab, wenn das Spielzeug im Mülleimer weiterbrummt und die Müllabfuhr kommt.",
+  "Die Musik für den Moment, wenn man feststellt, dass die Entspannungsmassage ein Extra enthalten hätte – man es aber abgelehnt hat.",
+  "Der Vibe, wenn man nach dem Sex merkt, dass das Fenster offen war und die Nachbarn auf dem Balkon klatschen.",
+  "Das geht mir durch den Kopf, wenn das Kondom die Farbe wechselt.",
+  "Der Soundtrack für die Frage: „Ist das dein Ernst oder ein Fetisch?“",
+  "Das spiele ich ab, wenn man wegen eines feststeckenden Rings die Notaufnahme anrufen muss.",
+  "Die Melodie für den Moment, wenn man merkt, dass die Handschellen aus dem Ein-Euro-Laden waren und abbrechen.",
+  "Wie ich mich fühle, wenn der Partner beim Rollenspiel die Stimme der eigenen Mutter imitiert.",
+  "Das läuft bei mir, wenn die Domina sagt: „Heute habe ich Schlechte-Laune-Rabatt.“",
+  "Der Vibe, wenn man feststellt, dass das Essen beim Romantik-Date für Blähungen sorgt.",
+  "Das spiele ich ab, wenn ein Gerät mitten im Einsatz „BATTERY LOW“ meldet.",
+  "Die Musik für den Moment, wenn man beim Vorspiel versehentlich den Hund vom Bett schubst.",
+  "Der Song für die Erkenntnis, dass der Partner das Rollenspiel etwas zu ernst nimmt.",
+  "Das geht mir durch den Kopf, wenn das Seil zu kurz war und man feststeckt.",
+  "Der Soundtrack für den Versuch, einen Fleck auf der Matratze der Schwiegereltern zu erklären.",
+  "Das spiele ich ab, wenn man merkt, dass die anzügliche Geschichte von der eigenen Schwester geschrieben wurde.",
+  "Die Melodie für das Gefühl, wenn das Gerät eine App-Steuerung hat und das WLAN ausfällt.",
+  "Wie es sich anfühlt, wenn man beim Fesseln den Knoten nicht mehr aufbekommt.",
+  "Das läuft im Hintergrund, wenn man die Erotikmesse mit einer vollen Tüte verlässt und den Nachbarn trifft.",
+  "Das spiele ich ab, wenn die Peitsche beim Schlag ein Pfeifgeräusch macht.",
+  "Die Musik für den Moment, wenn man realisiert, dass man auf dem Rastplatz gefilmt wurde.",
+  "Der Song für die Frage: „Soll das so wehtun oder ist das Kunst?“",
+  "Das geht mir durch den Kopf, wenn das Kondom Geschmack hat – aber nach Grünkohl.",
+  "Der Soundtrack für das Suchen nach dem Piercing im Bettzeug.",
+  "Das spiele ich ab, wenn man beim Sex die Brille verliert und nichts mehr sieht.",
+  "Die Melodie für den Moment, wenn die Domina fragt: „Hätten Sie gern eine Quittung?“",
+  "Wie ich mich fühle, wenn der Partner beim Höhepunkt den Namen seines Lieblingsfußballers ruft.",
+  "Das läuft bei mir, wenn man auf Tinder die Ex-Schwiegermutter entdeckt.",
+  "Der Vibe, wenn man die Gleitcreme versehentlich als Handcreme benutzt.",
+  "Das spiele ich ab, wenn ein sehr eindeutiges Portal die Bestätigungsmail an die Firmenadresse schickt.",
+  "Die Musik für den Moment, wenn man im Erotikshop nach einer Kundenkarte gefragt wird.",
+  "Der Song für das peinliche Gespräch über die Lautstärke im Hotelzimmer an der Rezeption.",
+  "Das geht mir durch den Kopf, wenn die Handschellen Schlüsselanhänger-Größe haben.",
+  "Der Soundtrack für den Versuch, nackt einen Einbrecher zu vertreiben.",
+  "Die Melodie für den Moment, wenn das Gleitgel auf der Tastatur ausläuft.",
+  "Wie sich der Vibe anfühlt, wenn am Clubeingang nach dem Ausweis gefragt wird und der Prüfer der alte Schulleiter ist.",
+  "Das läuft im Hintergrund, wenn man beim Pärchenabend merkt, dass die zwei anderen sich besser verstehen als mit einem selbst.",
+  "Der Song für die Erkenntnis, dass die Peitsche aus echtem Leder war und der Partner Veganer ist.",
+  "Das spiele ich ab, wenn der Partner beim Kissenkampf zum falschen Gegenstand greift.",
+  "Die Musik für den Moment, wenn man nach dem Sex feststellt, dass die Katze die ganze Zeit auf dem Schrank saß.",
+  "Der Vibe, wenn man um 6:00 Uhr morgens realisiert: „Das war der gestörteste Abend meines Lebens.“",
+];
 const WORD_TIMER_STEPS = [0, 15, 30, 60];
 let wordState = { used: [], current: null, round: 0, timer: null, remaining: 0 };
 
@@ -1831,10 +2024,19 @@ const OWN = { words: 'hitrater_own_words', cards: 'hitrater_own_cards', cards18:
 function ownWords() { return store.get(OWN.words, []) || []; }
 function ownCards() { return store.get(OWN.cards, []) || []; }
 function ownCards18() { return store.get(OWN.cards18, []) || []; }
-/* Kartenpool: Basis-Set plus eigene Karten; 18+ nur auf ausdrücklichen Wunsch */
+/* Die Kartensätze lassen sich einzeln zu- und abschalten und beliebig
+   mischen – ein Abend mit Sauf-Humor muss nicht gleich erotisch werden. */
+const CARD_SETS = [
+  { id: 'base',  label: '🃏 Standard',    get: () => CARDS_BASE },
+  { id: 'night', label: '🍻 Vollrausch',  get: () => CARDS_NIGHT, adult: true },
+  { id: 'spicy', label: '🌶 Ohne Filter', get: () => CARDS_SPICY, adult: true },
+  { id: 'own',   label: '✏️ Eigene',      get: () => ownCards() },
+  { id: 'own18', label: '🔞 Eigene 18+',  get: () => ownCards18(), adult: true },
+];
+function activeSets() { return settings.cardSets || ['base']; }
 function cardPool() {
-  let list = CARDS_BASE.concat(ownCards());
-  if (settings.cards18) list = list.concat(CARDS_18, ownCards18());
+  const on = activeSets();
+  const list = CARD_SETS.filter(s => on.includes(s.id)).flatMap(s => s.get());
   return list.filter((v, i, a) => a.indexOf(v) === i);
 }
 function parseLines(raw) {
@@ -3034,8 +3236,29 @@ function renderOwnContent() {
   $('chip-ownwords-only').classList.toggle('on', !!settings.ownWordsOnly);
   $('chip-ownwords-only').textContent = settings.ownWordsOnly
     ? 'Nur eigene Wörter' : 'Eigene + mitgelieferte';
-  $('chip-cards18').classList.toggle('on', !!settings.cards18);
-  $('chip-cards18').textContent = settings.cards18 ? '18+ ist aktiv' : '18+ dazunehmen';
+  renderCardSets();
+}
+function renderCardSets() {
+  const on = activeSets();
+  const box = $('cardset-chips');
+  box.innerHTML = CARD_SETS.map(s => {
+    const n = s.get().length;
+    return `<button class="chip ${on.includes(s.id) ? 'on' : ''} ${s.adult ? 'adult' : ''}"
+              data-set="${s.id}" ${n ? '' : 'disabled'}>${s.label} (${n})</button>`;
+  }).join('');
+  box.querySelectorAll('.chip').forEach(btn => {
+    btn.onclick = () => {
+      const id = btn.dataset.set;
+      const cur = new Set(activeSets());
+      cur.has(id) ? cur.delete(id) : cur.add(id);
+      settings.cardSets = [...cur];
+      saveSettings(); renderCardSets();
+    };
+  });
+  const total = cardPool().length;
+  $('cardset-status').textContent = total
+    ? `${total} Karten im Spiel.`
+    : '⚠️ Kein Satz gewählt – bitte mindestens einen antippen.';
 }
 $('btn-save-words').onclick = () => {
   const list = parseLines($('inp-own-words').value);
@@ -3055,10 +3278,6 @@ $('btn-save-cards18').onclick = () => {
   store.set(OWN.cards18, list);
   renderOwnContent();
   $('cards18-status').textContent = `✅ ${list.length} 18+-Karten gespeichert.`;
-};
-$('chip-cards18').onclick = () => {
-  settings.cards18 = !settings.cards18;
-  saveSettings(); renderOwnContent();
 };
 $('chip-ownwords-only').onclick = () => {
   settings.ownWordsOnly = !settings.ownWordsOnly;
