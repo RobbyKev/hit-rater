@@ -1,1 +1,1 @@
-# hit-rater
+Snippet
