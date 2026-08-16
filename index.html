@@ -401,6 +401,7 @@ code.uri {
 }
 .hand-card:active { transform: scale(.98); border-color: var(--amber); background: var(--surface-2); }
 .hand-card.played { border-color: var(--success-green); background: rgba(16,185,129,.14); }
+.laid { color: var(--amber); font-weight: 600; }
 /* Abgegebene Karten beim Gastgeber */
 .play-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
 .play-card {
@@ -1029,7 +1030,7 @@ const SCOPES = [
 ].join(' ');
 /* Sichtbare Version: So lässt sich prüfen, ob ein Gast noch eine alte,
    zwischengespeicherte Fassung der Seite geladen hat. */
-const APP_VERSION = '2026-08-16-b';
+const APP_VERSION = '2026-08-16-c';
 const REDIRECT_URI = location.origin + location.pathname;
 const LEN_STEPS = [15, 30, 45, 0];          // 0 = ganzer Song
 const RING_C = 2 * Math.PI * 46;   // muss zum r-Wert im SVG passen
@@ -3200,7 +3201,10 @@ async function hostCreateRoom() {
   watch(room.ref.child('match/plays'), 'value', (snap) => {
     matchState.plays = snap.val() || {};
     hostPlay = matchState.plays[fb.uid]?.card || null;
-    if (game.gameMode === 'match') { renderMatchHost(); renderHostHand(); }
+    if (game.gameMode === 'match') {
+      renderMatchHost(); renderHostHand();
+      matchConsumePlays();          // abgelegte Karten sofort ersetzen
+    }
   });
   watch(room.ref.child('match/hands/' + fb.uid), 'value', (snap) => {
     hostHand = snap.val() || [];
@@ -3380,9 +3384,11 @@ function renderHostHand() {
     box.innerHTML = '';
     return;
   }
-  hint.textContent = hostPlay ? '✅ Abgelegt. Warte auf die anderen …'
-                              : 'Welche Karte passt am besten zum Song?';
-  box.innerHTML = hostHand.map(c => `<button class="hand-card ${hostPlay === c ? 'played' : ''}"></button>`).join('');
+  hint.innerHTML = hostPlay
+    ? '✅ Abgelegt: <b class="laid"></b><br>Warte auf die anderen …'
+    : 'Welche Karte passt am besten zum Song?';
+  if (hostPlay) hint.querySelector('.laid').textContent = hostPlay;
+  box.innerHTML = hostHand.map(() => '<button class="hand-card"></button>').join('');
   box.querySelectorAll('.hand-card').forEach((el, i) => {
     el.textContent = hostHand[i];
     el.onclick = async () => {
@@ -3424,18 +3430,58 @@ async function matchDeal() {
   }
   const players = (await room.ref.child('players').get()).val() || {};
   const hands = (await room.ref.child('match/hands').get()).val() || {};
+  let used = (await room.ref.child('match/used').get()).val() || [];
   const inUse = new Set(Object.values(hands).flat());
-  let deck = shuffled(pool.filter(c => !inUse.has(c)));
+  // Bereits gespielte Karten kommen erst wieder, wenn der Stapel durch ist
+  let deck = shuffled(pool.filter(c => !inUse.has(c) && !used.includes(c)));
+  if (!deck.length) {                               // Stapel erschöpft → Ablage zurück
+    used = [];
+    await room.ref.child('match/used').remove();
+    deck = shuffled(pool.filter(c => !inUse.has(c)));
+  }
   const updates = {};
   for (const uid of Object.keys(players)) {
     const hand = hands[uid] || [];
     while (hand.length < HAND_SIZE) {
-      if (!deck.length) deck = shuffled(pool);      // Stapel erschöpft → neu mischen
+      if (!deck.length) deck = shuffled(pool.filter(c => !inUse.has(c)));
+      if (!deck.length) break;                      // wirklich nichts mehr übrig
       hand.push(deck.pop());
     }
     updates[uid] = hand;
   }
   await room.ref.child('match/hands').update(updates);
+}
+/* Abgelegte Karten sofort aus der Hand nehmen und nachziehen.
+   Nur der Gastgeber darf Hände schreiben, deshalb läuft das hier und nicht
+   auf den Spielergeräten. */
+let consuming = false;
+async function matchConsumePlays() {
+  if (!room.isHost || !room.ref || consuming) return;
+  const plays = matchState.plays || {};
+  if (!Object.keys(plays).length) return;
+  consuming = true;
+  try {
+    const hands = (await room.ref.child('match/hands').get()).val() || {};
+    const used = (await room.ref.child('match/used').get()).val() || [];
+    const updates = {};
+    let changed = false;
+    for (const [uid, p] of Object.entries(plays)) {
+      const hand = hands[uid] || [];
+      if (p?.card && hand.includes(p.card)) {
+        updates[uid] = hand.filter(c => c !== p.card);
+        if (!used.includes(p.card)) used.push(p.card);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    await room.ref.child('match/hands').update(updates);
+    await room.ref.child('match/used').set(used);
+    await matchDeal();                              // Lücke sofort auffüllen
+  } catch (e) {
+    matchError('Nachziehen fehlgeschlagen: ' + e.message);
+  } finally {
+    consuming = false;
+  }
 }
 async function matchNewRound() {
   if (!room.ref) { matchError('Kein Raum verbunden – bitte zurück und neu starten.'); return; }
@@ -3506,13 +3552,7 @@ async function matchPickWinner(uid) {
   matchState.winner = uid;
   await room.ref.child('players/' + uid + '/score').transaction(v => (v || 0) + 1);
   await room.ref.child('match').update({ winner: uid });
-  // Gespielte Karten aus den Händen nehmen, damit nachgezogen wird
-  const hands = (await room.ref.child('match/hands').get()).val() || {};
-  const updates = {};
-  for (const [u, p] of Object.entries(matchState.plays || {})) {
-    updates[u] = (hands[u] || []).filter(c => c !== p.card);
-  }
-  await room.ref.child('match/hands').update(updates);
+  // Die Karten sind bereits beim Ablegen aus den Händen genommen worden
   renderMatchHost();
   confetti();
 }
@@ -3586,11 +3626,12 @@ async function playerJoin(code, name) {
       $('pl-hand').innerHTML = '';
       return;
     }
-    $('pl-match-hint').textContent = myPlay
-      ? '✅ Abgegeben. Warte auf die anderen …'
+    const hint = $('pl-match-hint');
+    hint.innerHTML = myPlay
+      ? '✅ Abgegeben: <b class="laid"></b><br>Warte auf die anderen …'
       : 'Welche Karte passt am besten zum Song?';
-    $('pl-hand').innerHTML = myHand.map(c =>
-      `<button class="hand-card ${myPlay === c ? 'played' : ''}"></button>`).join('');
+    if (myPlay) hint.querySelector('.laid').textContent = myPlay;
+    $('pl-hand').innerHTML = myHand.map(() => '<button class="hand-card"></button>').join('');
     $('pl-hand').querySelectorAll('.hand-card').forEach((el, i) => {
       el.textContent = myHand[i];
       el.onclick = async () => {
