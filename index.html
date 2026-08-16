@@ -415,6 +415,9 @@ code.uri {
   line-height: 1.05; margin-bottom: 10px; cursor: pointer; display: inline-block;
   padding: 2px 14px; border-radius: 12px; border: 1px dashed transparent; transition: border-color .2s; }
 .reveal-year:active { border-color: rgba(245,158,11,.6); }
+.reveal-year.unsure { color: var(--text-muted); border-color: rgba(245,158,11,.45); }
+.unsure-tag { display: inline-block; background: rgba(245,158,11,.15); color: #fcd34d;
+  border-radius: 999px; padding: 4px 12px; font-size: .74rem; font-weight: 700; margin-bottom: 8px; }
 .reveal-title { font-family: var(--font-heading); font-weight: 700; font-size: 1.12rem; }
 .reveal-artist { color: var(--text-muted); font-size: .92rem; margin-top: 4px; }
 </style>
@@ -614,11 +617,18 @@ https://open.spotify.com/playlist/…"></textarea>
       <h2 class="h2" style="margin-top:18px">📅 Jahreszahlen</h2>
       <div class="chips">
         <button class="chip" id="chip-fixyears">Korrektur: An</button>
-        <button class="chip" id="chip-mbalways">MusicBrainz: nur Verdacht</button>
       </div>
-      <p class="body-sm" style="margin-top:12px">Spotify liefert oft das Jahr der Neuauflage statt des Originals. Die Korrektur sucht beim Import nach der ältesten Veröffentlichung – das dauert pro Playlist etwas länger, macht die Jahre aber deutlich verlässlicher.</p>
-      <button class="btn btn-ghost" id="btn-refix">Jahre aller Packs neu prüfen</button>
+      <p class="body-sm" style="margin-top:12px">Spotify liefert bei Best-of-Alben und Remastern das Datum der Neuauflage. Snippet fragt deshalb während des laufenden Songs bei MusicBrainz und Wikidata nach der echten Erstveröffentlichung – das kostet keine Wartezeit beim Laden. Heißt eine Playlist „All Out 50s", werden Jahre außerhalb dieses Zeitraums zusätzlich hinterfragt.</p>
+      <button class="btn btn-ghost" id="btn-refix">Jahre aller Packs jetzt prüfen</button>
       <div id="refix-progress" class="body-sm hidden" style="text-align:center;margin-top:10px"></div>
+
+      <h2 class="h2" style="margin-top:20px">🛠 Jahre von Hand nachbessern</h2>
+      <p class="body-sm">Exportiere die Songliste, lass die Jahre außerhalb der App prüfen und spiel die Korrekturen wieder ein. Praktisch für hartnäckige Fälle.</p>
+      <button class="btn btn-ghost" id="btn-export-years">Songliste exportieren</button>
+      <label style="margin-top:14px">Korrekturen einfügen</label>
+      <textarea id="inp-corrections" rows="3" placeholder='[{"title":"Die Da!?!","artist":"Die Fantastischen Vier","year":1992}]'></textarea>
+      <button class="btn btn-purple" id="btn-import-years">Korrekturen übernehmen</button>
+      <div id="corr-status" class="body-sm" style="margin-top:10px"></div>
 
       <h2 class="h2" style="margin-top:18px">🛟 Notfall</h2>
       <div class="chips">
@@ -1094,35 +1104,158 @@ async function yearFromMusicBrainz(track) {
     return null;
   } catch { return null; }        // Netzwerk/CORS-Problem → still überspringen
 }
+/* (3) Wikidata: Veröffentlichungsdatum (P577).
+   Zwei Schritte sind nötig – wbsearchentities liefert NUR Titel, ID und
+   Beschreibung, keine Eigenschaften. Das Datum steckt erst in den Claims,
+   die man über wbgetentities nachladen muss. */
+const WD_API = 'https://www.wikidata.org/w/api.php';
+async function yearFromWikidata(track) {
+  const artist = (track.artist || '').split(',')[0].trim();
+  try {
+    const q = `${track.title} ${artist}`;
+    const sUrl = `${WD_API}?action=wbsearchentities&search=${encodeURIComponent(q)}` +
+                 `&language=de&uselang=de&format=json&origin=*&type=item&limit=7`;
+    const sRes = await fetch(sUrl);
+    if (!sRes.ok) return null;
+    const hits = (await sRes.json()).search || [];
+    // Nur Einträge, die überhaupt nach Musikstück klingen
+    const musicRx = /lied|song|single|musik|album|track|composition/i;
+    const ids = hits.filter(h => musicRx.test(h.description || '')).map(h => h.id).slice(0, 4);
+    if (!ids.length) return null;
+    const eUrl = `${WD_API}?action=wbgetentities&ids=${ids.join('|')}` +
+                 `&props=claims&format=json&origin=*`;
+    const eRes = await fetch(eUrl);
+    if (!eRes.ok) return null;
+    const ents = (await eRes.json()).entities || {};
+    let best = null;
+    for (const id of Object.keys(ents)) {
+      for (const claim of (ents[id].claims?.P577 || [])) {          // P577 = Veröffentlichungsdatum
+        const time = claim.mainsnak?.datavalue?.value?.time || '';
+        const y = plausibleYear(time.replace(/^[+-]/, '').slice(0, 4));
+        if (y && (best === null || y < best)) best = y;
+      }
+    }
+    return best;
+  } catch { return null; }
+}
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-/* Deutet der Albumname/-typ auf eine Sammlung oder Neuauflage hin?
-   Genau dann lohnt sich die zusätzliche MusicBrainz-Abfrage. */
-const REISSUE_RX = /best of|greatest hits|the hits|hit(s|mix)|collection|anthology|jubil|edition|remaster|neu ?aufnahme|re-?recorded|das beste|meine lieder|liebeslieder|unplugged|live|sampler|party/i;
+
+/* Aus dem Playlist-Namen ein erwartetes Jahrzehnt ableiten.
+   „All Out 50s" oder „90er Hits" verraten mehr über das richtige Jahr als
+   jedes Albumdatum – ein Song aus so einem Pack kann nicht von 2008 sein. */
+function decadeFromName(name) {
+  const n = (name || '').toLowerCase();
+  let m = n.match(/\b(19|20)(\d0)(?:er|s)\b/);                     // 1950er, 2000er
+  if (m) { const d = +(m[1] + m[2]); return [d - 2, d + 12]; }
+  m = n.match(/\b([2-9]0)(?:er|s)\b/);                             // 50er, 90s
+  if (m) { const d = 1900 + +m[1]; return [d - 2, d + 12]; }
+  m = n.match(/\b(0|1)0er\b/);                                     // 00er, 10er
+  if (m) { const d = 2000 + +m[1] * 10; return [d - 2, d + 12]; }
+  return null;
+}
+function fitsDecade(year, range) {
+  return !range || (year >= range[0] && year <= range[1]);
+}
+
+/* Deutet der Albumname/-typ auf eine Sammlung oder Neuauflage hin? */
+const REISSUE_RX = /best of|greatest hits|the hits|hit(s|mix)|collection|complete|anthology|legends|jubil|edition|remaster|neu ?aufnahme|re-?recorded|das beste|meine lieder|unplugged|sampler/i;
 function looksLikeReissue(t) {
   return t.atype === 'compilation' || REISSUE_RX.test(t.aname || '');
 }
-/* Korrekturlauf über alle Tracks eines Packs */
-async function fixYears(tracks, onProgress) {
+
+/* ------------------------------------------------------------------
+   Jahr eines einzelnen Titels ermitteln.
+   Reihenfolge bewusst: MusicBrainz kennt als Einziges die Originale aus
+   den 50ern und 60ern, die es auf Spotify oft gar nicht mehr gibt.
+   Spotify steht am Ende, weil es genau die Remaster-Daten liefert, die
+   das Problem überhaupt verursachen.
+   ------------------------------------------------------------------ */
+async function resolveYear(track, decade) {
+  const current = plausibleYear(track.year);
+  const candidates = [];
+
+  const mb = await yearFromMusicBrainz(track);
+  if (mb) candidates.push({ year: mb, src: 'musicbrainz' });
+  if (!mb || !fitsDecade(mb, decade)) {
+    const wd = await yearFromWikidata(track);
+    if (wd) candidates.push({ year: wd, src: 'wikidata' });
+  }
+  // Passt schon etwas ins erwartete Jahrzehnt? Dann reicht das.
+  const fitting = candidates.filter(c => fitsDecade(c.year, decade));
+  if (fitting.length) {
+    const best = fitting.reduce((a, b) => (a.year <= b.year ? a : b));
+    return { ...best, unsure: false };
+  }
+  // Sonst noch Spotify befragen (findet zumindest ältere Album-Versionen)
+  const sp = await yearFromSpotifySearch(track);
+  if (sp) candidates.push({ year: sp, src: 'spotify' });
+  const all = candidates.filter(c => fitsDecade(c.year, decade));
+  if (all.length) {
+    const best = all.reduce((a, b) => (a.year <= b.year ? a : b));
+    return { ...best, unsure: false };
+  }
+  if (candidates.length) {
+    const best = candidates.reduce((a, b) => (a.year <= b.year ? a : b));
+    // Kein Treffer passt ins Jahrzehnt → als unsicher kennzeichnen
+    return { ...best, unsure: !fitsDecade(best.year, decade) };
+  }
+  if (current === null) return null;
+  return { year: current, src: track.src || 'album',
+           unsure: !fitsDecade(current, decade) || looksLikeReissue(track) };
+}
+
+/* Ergebnis in den Track schreiben. Gibt true zurück, wenn sich etwas ändert. */
+function applyYearResult(t, res) {
+  if (!res) return false;
+  const changed = String(res.year) !== String(t.year) || t.src !== res.src || !!t.unsure !== !!res.unsure;
+  t.year = String(res.year);
+  t.src = res.src;
+  t.unsure = !!res.unsure;
+  t.checked = true;
+  return changed;
+}
+
+/* ------------------------------------------------------------------
+   Live-Prüfung: Das Jahr wird nachgeschlagen, WÄHREND der Song läuft.
+   Der Titel spielt ohnehin eine halbe Minute – in der Zeit ist eine
+   einzelne Abfrage längst durch. So gibt es beim Import keine Wartezeit
+   mehr, und geprüft wird nur, was auch wirklich gespielt wird.
+   ------------------------------------------------------------------ */
+const yearJobs = new Set();
+async function verifyYearLive(trackId, packIndex) {
+  if (yearJobs.has(trackId)) return;
+  yearJobs.add(trackId);
+  try {
+    const packs = getPacks();
+    const pack = packs[packIndex];
+    const t = pack?.tracks.find(x => x.id === trackId);
+    if (!t || t.src === 'manuell' || t.checked) return;
+    const res = await resolveYear(t, decadeFromName(pack.name));
+    // Zwischenzeitlich könnte der Nutzer das Jahr von Hand gesetzt haben
+    const fresh = getPacks();
+    const stored = fresh[packIndex]?.tracks.find(x => x.id === trackId);
+    if (!stored || stored.src === 'manuell') return;
+    if (applyYearResult(stored, res)) savePacks(fresh);
+    else { stored.checked = true; savePacks(fresh); }
+    // Läuft der Song noch? Dann die Anzeige aktualisieren.
+    if (game.current?.id === trackId) {
+      Object.assign(game.current, { year: stored.year, src: stored.src, unsure: stored.unsure });
+      if (game.revealed) refreshRevealYear();
+    }
+  } catch { /* still ignorieren – lieber das alte Jahr als ein Absturz */ }
+  finally { yearJobs.delete(trackId); }
+}
+
+/* Korrekturlauf über alle Tracks eines Packs (Stapelverarbeitung) */
+async function fixYears(tracks, onProgress, packName) {
+  const decade = decadeFromName(packName);
   for (let i = 0; i < tracks.length; i++) {
     const t = tracks[i];
     onProgress?.(i + 1, tracks.length);
-    if (t.src === 'manuell') continue;                     // von Hand gesetzte Jahre nie überschreiben
-    const current = plausibleYear(t.year);
-    const spotifyYear = await yearFromSpotifySearch(t);
-    if (spotifyYear && (current === null || spotifyYear < current)) {
-      t.year = String(spotifyYear); t.src = 'spotify';
-    }
-    // MusicBrainz dort, wo es sich lohnt: unbekanntes Jahr, Verdacht auf
-    // Neuauflage laut Albumname/-typ, oder Spotify fand etwas deutlich Älteres
-    const now = plausibleYear(t.year);
-    const suspicious = now === null
-      || looksLikeReissue(t)
-      || (current !== null && spotifyYear !== null && current - spotifyYear >= 2);
-    if (suspicious || settings.mbAlways) {
-      const mbYear = await yearFromMusicBrainz(t);
-      if (mbYear && (now === null || mbYear < now)) { t.year = String(mbYear); t.src = 'musicbrainz'; }
-      await sleep(1100);                                   // MusicBrainz: max. 1 Anfrage/Sekunde
-    }
+    if (t.src === 'manuell') continue;            // von Hand gesetzte Jahre nie überschreiben
+    applyYearResult(t, await resolveYear(t, decade));
+    await sleep(1100);                            // MusicBrainz: höchstens 1 Anfrage/Sekunde
   }
   return tracks;
 }
@@ -1184,10 +1317,15 @@ async function addPlaylistById(id, onProgress) {
     if (!tracks.length) {
       return { ok: false, error: `„${meta.name}“: keine Songs gefunden. Bei fremden Playlists liefert Spotify keine Songliste – erstelle eine eigene Kopie in deinem Konto.` };
     }
-    if (settings.fixYears) {
-      await fixYears(tracks, (done, total) =>
-        onProgress?.(`Prüfe Jahreszahlen … ${done}/${total}`));
-    }
+    // Kein Stapellauf mehr beim Import: Die Jahre werden während des Spiels
+    // geprüft. Das spart bei großen Playlists mehrere Minuten Wartezeit.
+    // Bereits geprüfte Jahre aus einem früheren Import übernehmen:
+    const known = new Map((getPacks().find(p => p.id === id)?.tracks || [])
+      .filter(t => t.checked || t.src === 'manuell').map(t => [t.id, t]));
+    tracks.forEach(t => {
+      const old = known.get(t.id);
+      if (old) Object.assign(t, { year: old.year, src: old.src, unsure: old.unsure, checked: true });
+    });
     const cover = meta.images?.length ? meta.images[0].url : (tracks.find(t => t.cover)?.cover || '');
     const packs = getPacks();
     const idx = packs.findIndex(p => p.id === id);
@@ -1267,7 +1405,7 @@ async function loadMyPlaylists() {
 let settings = Object.assign(
   { mode: 'random', auto: false, showPlayer: false, len: 30, start: 'begin',
     playback: 'full',            // 'full' = ganze Titel (SDK) | 'preview' = 30-Sek-Clip
-    fixYears: true, mbAlways: false, bestStreak: 0, wordLang: 'both', wordTimer: 0 },
+    fixYears: true, bestStreak: 0, wordLang: 'both', wordTimer: 0 },
   store.get(LS.settings, {})
 );
 function saveSettings() { store.set(LS.settings, settings); }
@@ -1276,8 +1414,6 @@ function renderChips() {
   $('chip-mode').classList.add('on');
   $('chip-fixyears').textContent = settings.fixYears ? 'Korrektur: An' : 'Korrektur: Aus';
   $('chip-fixyears').classList.toggle('on', settings.fixYears);
-  $('chip-mbalways').textContent = settings.mbAlways ? 'MusicBrainz: immer' : 'MusicBrainz: nur Verdacht';
-  $('chip-mbalways').classList.toggle('on', settings.mbAlways);
   $('chip-auto').classList.toggle('on', settings.auto);
   $('chip-len').textContent = settings.len ? `Länge: ${settings.len}s` : 'Länge: ganzer Song';
   $('chip-len').classList.add('on');
@@ -1700,6 +1836,10 @@ async function runRound(autoplay) {
   $('game-round').textContent = `Runde ${game.round}` + (left > 0 ? ` · ${left} übrig` : '');
   $('game-pack').textContent = pack.name;
   renderModeUi();
+  // Jahr im Hintergrund prüfen, während der Song läuft
+  if (settings.fixYears && !track.checked && track.src !== 'manuell') {
+    verifyYearLive(track.id, game.packIndex);
+  }
   applyAlbumGlow(track.cover);      // Hintergrund nimmt die Farbe des Covers an
   ringReset();
   playbackStartMs = 0;
@@ -1892,6 +2032,30 @@ function guessHighLow(guessNewer) {
   revealTrack(correct);
 }
 function reveal() { revealTrack(undefined); }
+/* Woher stammt das angezeigte Jahr? */
+function yearSourceLabel(t) {
+  return { musicbrainz: 'Erstveröffentlichung laut MusicBrainz',
+           wikidata:    'Erstveröffentlichung laut Wikidata',
+           spotify:     'Älteste Fassung bei Spotify',
+           manuell:     'Von dir korrigiert' }[t.src]
+         || (t.aname ? 'Datum des Albums „' + t.aname + '“' : 'Album-Datum von Spotify');
+}
+/* Die Live-Prüfung kann ein Jahr nachliefern, während die Karte schon offen ist */
+function refreshRevealYear() {
+  const t = game.current;
+  const el = $('reveal-year');
+  if (!t || !el) return;
+  el.textContent = t.year;
+  el.classList.toggle('unsure', !!t.unsure);
+  const src = $('year-src');
+  if (src) src.textContent = yearSourceLabel(t) + ' · Jahr falsch? Antippen zum Ändern';
+  const tag = $('unsure-tag');
+  if (t.unsure && !tag) {
+    el.insertAdjacentHTML('afterend', '<div class="unsure-tag" id="unsure-tag">⚠️ Jahr unsicher</div>');
+  } else if (!t.unsure && tag) {
+    tag.remove();
+  }
+}
 /* --- Jahr von Hand korrigieren (wird dauerhaft im Pack gespeichert) --- */
 function editYear(track) {
   const input = prompt(`Richtiges Erscheinungsjahr für „${track.title}“:`, track.year);
@@ -1915,10 +2079,7 @@ function revealTrack(verdict) {
   if (!t || game.revealed) return;
   game.revealed = true;
   buzz(30);
-  const srcLabel = { spotify: 'Jahr über Spotify-Suche korrigiert',
-                     musicbrainz: 'Jahr laut MusicBrainz (Erstveröffentlichung)',
-                     manuell: 'Jahr von dir korrigiert' }[t.src]
-                   || (t.aname ? 'Jahr des Albums „' + t.aname + '“' : '');
+  const srcLabel = yearSourceLabel(t);
   let verdictHtml = '';
   if (verdict === true)  verdictHtml = '<div class="verdict ok">✓ Richtig!</div>';
   if (verdict === false) verdictHtml = '<div class="verdict no">✗ Daneben – Serie beendet</div>';
@@ -1927,10 +2088,11 @@ function revealTrack(verdict) {
   box.innerHTML = `
     ${verdictHtml}
     ${t.cover ? `<img src="${t.cover}" alt="Cover">` : ''}
-    <div class="reveal-year mono" id="reveal-year" title="Antippen, um das Jahr zu korrigieren">${t.year}</div>
+    <div class="reveal-year mono ${t.unsure ? 'unsure' : ''}" id="reveal-year" title="Antippen, um das Jahr zu korrigieren">${t.year}</div>
+    ${t.unsure ? '<div class="unsure-tag" id="unsure-tag">⚠️ Jahr unsicher</div>' : ''}
     <div class="reveal-title"></div>
     <div class="reveal-artist"></div>
-    <div class="year-src">${srcLabel ? srcLabel + ' · ' : ''}Jahr falsch? Antippen zum Ändern</div>`;
+    <div class="year-src" id="year-src">${srcLabel ? srcLabel + ' · ' : ''}Jahr falsch? Antippen zum Ändern</div>`;
   box.querySelector('.reveal-title').textContent = t.title;
   box.querySelector('.reveal-artist').textContent = t.artist;
   box.querySelector('#reveal-year').onclick = () => editYear(t);
@@ -1996,12 +2158,72 @@ function chooseMode(mode) {
   if (mode === 'words') { startWordGame(); return; }   // braucht kein Pack
   openPacks();
 }
+/* ------------------------------------------------------------------
+   Export / Import der Jahreszahlen
+   Erlaubt, hartnäckige Fälle außerhalb der App zu korrigieren und die
+   Ergebnisse wieder einzuspielen. Zugeordnet wird bevorzugt über die
+   Spotify-Track-ID, ersatzweise über Titel und Interpret.
+   ------------------------------------------------------------------ */
+function exportYears() {
+  const packs = getPacks();
+  if (!packs.length) { alert('Noch keine Packs vorhanden.'); return; }
+  const data = packs.map(p => ({
+    pack: p.name,
+    tracks: p.tracks.map(t => ({
+      id: t.id, title: t.title, artist: t.artist,
+      year: t.year, src: t.src || 'album', unsure: !!t.unsure,
+    })),
+  }));
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'snippet-jahre.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  $('corr-status').textContent = `${data.reduce((n, p) => n + p.tracks.length, 0)} Songs exportiert.`;
+}
+function importCorrections(raw) {
+  let list;
+  try {
+    const parsed = JSON.parse(raw.trim());
+    // Sowohl die flache Liste als auch das Exportformat annehmen
+    list = Array.isArray(parsed)
+      ? (parsed[0]?.tracks ? parsed.flatMap(p => p.tracks) : parsed)
+      : [parsed];
+  } catch (e) {
+    $('corr-status').textContent = '❌ Das ist kein gültiges JSON.';
+    return;
+  }
+  const packs = getPacks();
+  const byId = new Map();
+  const byName = new Map();
+  packs.forEach(p => p.tracks.forEach(t => {
+    byId.set(t.id, t);
+    byName.set(normTitle(t.title) + '|' + normTitle((t.artist || '').split(',')[0]), t);
+  }));
+  let hits = 0, misses = 0;
+  for (const c of list) {
+    const y = plausibleYear(c.year ?? c.correct_year);
+    if (!y) { misses++; continue; }
+    const key = normTitle(c.title) + '|' + normTitle((c.artist || '').split(',')[0]);
+    const t = (c.id && byId.get(c.id)) || byName.get(key);
+    if (!t) { misses++; continue; }
+    t.year = String(y); t.src = 'manuell'; t.unsure = false; t.checked = true;
+    hits++;
+  }
+  savePacks(packs);
+  renderPacks();
+  $('corr-status').textContent =
+    `✅ ${hits} Jahre übernommen${misses ? `, ${misses} nicht zuzuordnen` : ''}.`;
+  if (hits) $('inp-corrections').value = '';
+}
+
 /* Jahre aller vorhandenen Packs nachträglich prüfen */
 async function refixAllPacks() {
   const packs = getPacks();
   if (!packs.length) return;
   const totalTracks = packs.reduce((n, p) => n + p.tracks.length, 0);
-  const minutes = Math.ceil(totalTracks * (settings.mbAlways ? 1.4 : 0.6) / 60);
+  const minutes = Math.ceil(totalTracks * 1.6 / 60);
   if (!confirm(`${totalTracks} Songs werden geprüft – das dauert etwa ${minutes} Minute(n).\n\nBitte lass die App dabei im Vordergrund geöffnet. Fortfahren?`)) return;
   const el = $('refix-progress');
   el.classList.remove('hidden');
@@ -2009,7 +2231,7 @@ async function refixAllPacks() {
   for (let i = 0; i < packs.length; i++) {
     await fixYears(packs[i].tracks, (done, total) => {
       el.textContent = `Pack ${i + 1}/${packs.length} – „${packs[i].name}“: ${done}/${total}`;
-    });
+    }, packs[i].name);
     savePacks(packs);        // Zwischenstand sichern
   }
   el.textContent = 'Fertig ✓';
@@ -2472,10 +2694,11 @@ $('chip-wordtimer').onclick = () => {
 $('btn-older').onclick = () => guessHighLow(false);
 $('btn-newer').onclick = () => guessHighLow(true);
 $('btn-refix').onclick = refixAllPacks;
+$('btn-export-years').onclick = exportYears;
+$('btn-import-years').onclick = () => importCorrections($('inp-corrections').value);
 $('btn-load-playlist').onclick = () => loadPlaylists($('inp-playlist').value);
 $('btn-refresh-mylists').onclick = loadMyPlaylists;
 $('chip-fixyears').onclick = () => { settings.fixYears = !settings.fixYears; saveSettings(); renderChips(); };
-$('chip-mbalways').onclick = () => { settings.mbAlways = !settings.mbAlways; saveSettings(); renderChips(); };
 $('chip-mode').onclick   = () => { settings.mode = settings.mode === 'random' ? 'order' : 'random'; saveSettings(); renderChips(); };
 $('chip-auto').onclick   = () => { settings.auto = !settings.auto; saveSettings(); renderChips(); };
 $('chip-len').onclick    = () => { settings.len = LEN_STEPS[(LEN_STEPS.indexOf(settings.len) + 1) % LEN_STEPS.length]; saveSettings(); renderChips(); };
