@@ -652,6 +652,27 @@ https://open.spotify.com/playlist/…"></textarea>
     </div>
 
     <div class="card">
+      <h2 class="h2">✏️ Eigene Inhalte</h2>
+      <p class="body-sm">Hier eingetragene Texte bleiben auf diesem Gerät gespeichert und überstehen jedes Update der App.</p>
+
+      <label style="margin-top:14px">🎤 Eigene Wörter für „Grab the Mic" – eines pro Zeile</label>
+      <textarea id="inp-own-words" rows="4" placeholder="Feuerwerk&#10;Sehnsucht&#10;Rock'n'Roll"></textarea>
+      <div class="chips" style="margin-top:10px">
+        <button class="chip" id="chip-ownwords-only">Nur eigene Wörter</button>
+      </div>
+      <button class="btn btn-purple" id="btn-save-words">Wörter speichern</button>
+      <div id="words-status" class="body-sm" style="margin-top:8px"></div>
+
+      <label style="margin-top:18px">🃏 Eigene Situationskarten – eine pro Zeile</label>
+      <textarea id="inp-own-cards" rows="4" placeholder="Wenn dein Chef freitags um 16:50 noch was will&#10;Wenn du merkst, dass du seit 20 Minuten falsch mitsingst"></textarea>
+      <button class="btn btn-purple" id="btn-save-cards">Karten speichern</button>
+      <div id="cards-status" class="body-sm" style="margin-top:8px"></div>
+
+      <button class="btn btn-ghost" id="btn-export-content">Eigene Inhalte sichern</button>
+      <p class="body-sm" style="margin-top:8px">Lädt eine Datei herunter – praktisch als Sicherung oder um deine Texte auf ein anderes Gerät zu bringen.</p>
+    </div>
+
+    <div class="card">
       <h2 class="h2">🔔 Buzzer (Firebase)</h2>
       <p class="body-sm">Für den Buzzer-Modus brauchst du ein kostenloses Firebase-Projekt mit <b>Realtime Database</b> und aktivierter <b>anonymer Anmeldung</b>. Füge hier den Konfigurations-Block aus der Firebase-Konsole ein.</p>
       <label style="margin-top:12px">Dein Anzeigename (als Gastgeber)</label>
@@ -1418,7 +1439,7 @@ async function loadMyPlaylists() {
 let settings = Object.assign(
   { mode: 'random', auto: false, showPlayer: false, len: 30, start: 'begin',
     playback: 'full',            // 'full' = ganze Titel (SDK) | 'preview' = 30-Sek-Clip
-    fixYears: true, bestStreak: 0, wordLang: 'both', wordTimer: 0 },
+    fixYears: true, bestStreak: 0, wordLang: 'both', wordTimer: 0, ownWordsOnly: false },
   store.get(LS.settings, {})
 );
 function saveSettings() { store.set(LS.settings, settings); }
@@ -1442,6 +1463,7 @@ function renderChips() {
     : 'Keine Konfiguration hinterlegt.';
   if (cfg && !$('inp-fb-config').value) $('inp-fb-config').value = JSON.stringify(cfg, null, 1);
   if (!$('inp-host-name').value) $('inp-host-name').value = store.get('hitrater_host_name', '') || '';
+  renderOwnContent();
 }
 /* Balken-Grafik der beiden Wiedergabe-Karten (rein dekorativ) */
 function drawBars(el, peakCenter) {
@@ -1622,12 +1644,23 @@ const WORDS_EN = [
 const WORD_TIMER_STEPS = [0, 15, 30, 60];
 let wordState = { used: [], current: null, round: 0, timer: null, remaining: 0 };
 
+/* Eigene Inhalte des Nutzers – liegen getrennt von den mitgelieferten Listen,
+   damit ein Update der App sie niemals überschreibt. */
+const OWN = { words: 'hitrater_own_words', cards: 'hitrater_own_cards' };
+function ownWords() { return store.get(OWN.words, []) || []; }
+function ownCards() { return store.get(OWN.cards, []) || []; }
+function parseLines(raw) {
+  return raw.split('\n').map(s => s.trim()).filter(Boolean)
+    .filter((v, i, a) => a.indexOf(v) === i);      // Dubletten raus
+}
 function wordPool() {
   const lang = settings.wordLang || 'both';
   const list = [];
+  const own = ownWords().map(w => ({ w, lang: 'Eigene' }));
+  if (settings.ownWordsOnly) return own.length ? own : [];
   if (lang !== 'en') WORDS_DE.forEach(w => list.push({ w, lang: 'Deutsch' }));
   if (lang !== 'de') WORDS_EN.forEach(w => list.push({ w, lang: 'Englisch' }));
-  return list;
+  return list.concat(own);
 }
 function stopWordTimer() {
   clearInterval(wordState.timer); wordState.timer = null;
@@ -2799,6 +2832,44 @@ $('chip-wordtimer').onclick = () => {
 $('btn-older').onclick = () => guessHighLow(false);
 $('btn-newer').onclick = () => guessHighLow(true);
 $('btn-refix').onclick = refixAllPacks;
+/* ---- Eigene Inhalte verwalten ---- */
+function renderOwnContent() {
+  const w = ownWords(), c = ownCards();
+  if (!$('inp-own-words').value) $('inp-own-words').value = w.join('\n');
+  if (!$('inp-own-cards').value) $('inp-own-cards').value = c.join('\n');
+  $('words-status').textContent = w.length ? `${w.length} eigene Wörter gespeichert.` : 'Noch keine eigenen Wörter.';
+  $('cards-status').textContent = c.length ? `${c.length} eigene Karten gespeichert.` : 'Noch keine eigenen Karten.';
+  $('chip-ownwords-only').classList.toggle('on', !!settings.ownWordsOnly);
+  $('chip-ownwords-only').textContent = settings.ownWordsOnly
+    ? 'Nur eigene Wörter' : 'Eigene + mitgelieferte';
+}
+$('btn-save-words').onclick = () => {
+  const list = parseLines($('inp-own-words').value);
+  store.set(OWN.words, list);
+  wordState.used = [];                      // Topf neu mischen
+  renderOwnContent();
+  $('words-status').textContent = `✅ ${list.length} eigene Wörter gespeichert.`;
+};
+$('btn-save-cards').onclick = () => {
+  const list = parseLines($('inp-own-cards').value);
+  store.set(OWN.cards, list);
+  renderOwnContent();
+  $('cards-status').textContent = `✅ ${list.length} eigene Karten gespeichert.`;
+};
+$('chip-ownwords-only').onclick = () => {
+  settings.ownWordsOnly = !settings.ownWordsOnly;
+  saveSettings(); renderOwnContent();
+  wordState.used = [];
+};
+$('btn-export-content').onclick = () => {
+  const data = { words: ownWords(), cards: ownCards() };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'snippet-eigene-inhalte.json';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+};
 $('btn-export-years').onclick = exportYears;
 $('btn-import-years').onclick = () => importCorrections($('inp-corrections').value);
 $('btn-load-playlist').onclick = () => loadPlaylists($('inp-playlist').value);
