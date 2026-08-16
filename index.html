@@ -402,6 +402,13 @@ code.uri {
 .chip.on { background: rgba(16,185,129,.15); border-color: var(--success-green); color: #6ee7b7; }
 .chip.adult.on { background: rgba(236,72,153,.16); border-color: var(--primary-glow); color: #f9a8d4; }
 .chip:disabled { opacity: .4; }
+/* Eigene Kategorien */
+.own-set { background: var(--bg-dark); border: 1px solid rgba(255,255,255,.10);
+  border-radius: 14px; padding: 12px; margin-bottom: 12px; }
+.own-set-head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.own-set-head .set-name { flex: 1; padding: 10px 12px; font-weight: 600; }
+.own-set-head .icon-btn { width: 38px; height: 38px; }
+.own-set-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
 
 /* ===== Spiel ===== */
 .game-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
@@ -701,15 +708,10 @@ https://open.spotify.com/playlist/…"></textarea>
       <button class="btn btn-purple" id="btn-save-words">Wörter speichern</button>
       <div id="words-status" class="body-sm" style="margin-top:8px"></div>
 
-      <label style="margin-top:18px">🃏 Eigene Situationskarten – eine pro Zeile</label>
-      <textarea id="inp-own-cards" rows="4" placeholder="Der Song, der läuft, wenn …"></textarea>
-      <button class="btn btn-purple" id="btn-save-cards">Karten speichern</button>
-      <div id="cards-status" class="body-sm" style="margin-top:8px"></div>
-
-      <label style="margin-top:18px">🔞 Eigene Karten ab 18 – eine pro Zeile</label>
-      <textarea id="inp-own-cards18" rows="4" placeholder="Nur für Runden unter Erwachsenen …"></textarea>
-      <button class="btn btn-purple" id="btn-save-cards18">18+-Karten speichern</button>
-      <div id="cards18-status" class="body-sm" style="margin-top:8px"></div>
+      <h2 class="h2" style="margin-top:20px">🃏 Eigene Kartenkategorien</h2>
+      <p class="body-sm">Lege beliebig viele eigene Sätze an – etwa „Tiere", „Büro" oder „Urlaub". Jeder erscheint unten als eigener Schalter.</p>
+      <div id="own-sets"></div>
+      <button class="btn btn-purple" id="btn-add-set">➕ Neue Kategorie</button>
 
       <h2 class="h2" style="margin-top:20px">🎴 Kartensätze für „Perfekter Moment"</h2>
       <p class="body-sm">Mehrfachauswahl – die angetippten Sätze werden gemischt.</p>
@@ -2136,25 +2138,48 @@ let wordState = { used: [], current: null, round: 0, timer: null, remaining: 0 }
 
 /* Eigene Inhalte des Nutzers – liegen getrennt von den mitgelieferten Listen,
    damit ein Update der App sie niemals überschreibt. */
-const OWN = { words: 'hitrater_own_words', cards: 'hitrater_own_cards', cards18: 'hitrater_own_cards18' };
+const OWN = { words: 'hitrater_own_words', cards: 'hitrater_own_cards',
+              cards18: 'hitrater_own_cards18', sets: 'hitrater_own_sets' };
 function ownWords() { return store.get(OWN.words, []) || []; }
-function ownCards() { return store.get(OWN.cards, []) || []; }
-function ownCards18() { return store.get(OWN.cards18, []) || []; }
+/* Selbst benannte Kartenkategorien. Frühere Einträge aus den beiden festen
+   Feldern werden beim ersten Aufruf automatisch übernommen, damit nichts
+   verloren geht. */
+function ownSets() {
+  let sets = store.get(OWN.sets, null);
+  if (!sets) {
+    sets = [];
+    const legacy = store.get(OWN.cards, []) || [];
+    const legacy18 = store.get(OWN.cards18, []) || [];
+    if (legacy.length) sets.push({ id: 'u1', name: 'Eigene', cards: legacy, adult: false });
+    if (legacy18.length) sets.push({ id: 'u2', name: 'Eigene 18+', cards: legacy18, adult: true });
+    store.set(OWN.sets, sets);
+  }
+  return sets;
+}
+function saveOwnSets(sets) { store.set(OWN.sets, sets); }
+function newSetId() { return 'u' + Date.now().toString(36); }
 /* Die Kartensätze lassen sich einzeln zu- und abschalten und beliebig
    mischen – ein Abend mit Sauf-Humor muss nicht gleich erotisch werden. */
-const CARD_SETS = [
+const BUILTIN_SETS = [
   { id: 'base',  label: '🃏 Standard',       get: () => CARDS_BASE },
   { id: 'dark',  label: '🖤 Schwarzer Humor', get: () => CARDS_DARK },
   { id: 'queer', label: '🏳️‍🌈 Queer Life',    get: () => CARDS_QUEER },
   { id: 'night', label: '🍻 Vollrausch',     get: () => CARDS_NIGHT, adult: true },
   { id: 'spicy', label: '🌶 Ohne Filter',    get: () => CARDS_SPICY, adult: true },
-  { id: 'own',   label: '✏️ Eigene',         get: () => ownCards() },
-  { id: 'own18', label: '🔞 Eigene 18+',     get: () => ownCards18(), adult: true },
 ];
+/* Mitgelieferte plus selbst angelegte Kategorien */
+function allCardSets() {
+  return BUILTIN_SETS.concat(ownSets().map(s => ({
+    id: s.id,
+    label: (s.adult ? '🔞 ' : '✏️ ') + (s.name || 'Ohne Namen'),
+    adult: !!s.adult,
+    get: () => s.cards || [],
+  })));
+}
 function activeSets() { return settings.cardSets || ['base']; }
 function cardPool() {
   const on = activeSets();
-  const list = CARD_SETS.filter(s => on.includes(s.id)).flatMap(s => s.get());
+  const list = allCardSets().filter(s => on.includes(s.id)).flatMap(s => s.get());
   return list.filter((v, i, a) => a.indexOf(v) === i);
 }
 function parseLines(raw) {
@@ -3533,16 +3558,63 @@ $('btn-older').onclick = () => guessHighLow(false);
 $('btn-newer').onclick = () => guessHighLow(true);
 $('btn-refix').onclick = refixAllPacks;
 /* ---- Eigene Inhalte verwalten ---- */
+function renderOwnSets() {
+  const sets = ownSets();
+  const box = $('own-sets');
+  if (!sets.length) {
+    box.innerHTML = '<p class="body-sm">Noch keine eigene Kategorie angelegt.</p>';
+    return;
+  }
+  box.innerHTML = sets.map(s => `
+    <div class="own-set" data-id="${s.id}">
+      <div class="own-set-head">
+        <input type="text" class="set-name" maxlength="24" placeholder="Name der Kategorie">
+        <button class="icon-btn set-del" title="Kategorie löschen">🗑</button>
+      </div>
+      <textarea class="set-cards" rows="4" placeholder="Eine Karte pro Zeile …"></textarea>
+      <div class="own-set-foot">
+        <button class="chip set-adult ${s.adult ? 'on adult' : ''}">${s.adult ? '🔞 Ab 18' : 'Für alle'}</button>
+        <span class="body-sm set-count"></span>
+      </div>
+    </div>`).join('');
+  box.querySelectorAll('.own-set').forEach((el, i) => {
+    const s = sets[i];
+    el.querySelector('.set-name').value = s.name || '';
+    el.querySelector('.set-cards').value = (s.cards || []).join('\n');
+    el.querySelector('.set-count').textContent = `${(s.cards || []).length} Karten`;
+    const persist = () => {
+      const list = ownSets();
+      const idx = list.findIndex(x => x.id === s.id);
+      if (idx < 0) return;
+      list[idx].name = el.querySelector('.set-name').value.trim();
+      list[idx].cards = parseLines(el.querySelector('.set-cards').value);
+      saveOwnSets(list);
+      el.querySelector('.set-count').textContent = `${list[idx].cards.length} Karten`;
+      renderCardSets();
+    };
+    el.querySelector('.set-name').onchange = persist;
+    el.querySelector('.set-cards').onchange = persist;
+    el.querySelector('.set-adult').onclick = () => {
+      const list = ownSets();
+      const idx = list.findIndex(x => x.id === s.id);
+      list[idx].adult = !list[idx].adult;
+      saveOwnSets(list);
+      renderOwnSets(); renderCardSets();
+    };
+    el.querySelector('.set-del').onclick = () => {
+      if (!confirm(`Kategorie „${s.name || 'Ohne Namen'}" mit ${(s.cards || []).length} Karten löschen?`)) return;
+      saveOwnSets(ownSets().filter(x => x.id !== s.id));
+      settings.cardSets = activeSets().filter(id => id !== s.id);
+      saveSettings();
+      renderOwnSets(); renderCardSets();
+    };
+  });
+}
 function renderOwnContent() {
-  const w = ownWords(), c = ownCards(), c18 = ownCards18();
+  const w = ownWords();
   if (!$('inp-own-words').value) $('inp-own-words').value = w.join('\n');
-  if (!$('inp-own-cards').value) $('inp-own-cards').value = c.join('\n');
-  if (!$('inp-own-cards18').value) $('inp-own-cards18').value = c18.join('\n');
   $('words-status').textContent = w.length ? `${w.length} eigene Wörter gespeichert.` : 'Noch keine eigenen Wörter.';
-  $('cards-status').textContent =
-    `${CARDS_BASE.length} Karten mitgeliefert` + (c.length ? `, ${c.length} eigene dazu.` : '.');
-  $('cards18-status').textContent = c18.length
-    ? `${c18.length} eigene 18+-Karten gespeichert.` : 'Noch keine 18+-Karten.';
+  renderOwnSets();
   $('chip-ownwords-only').classList.toggle('on', !!settings.ownWordsOnly);
   $('chip-ownwords-only').textContent = settings.ownWordsOnly
     ? 'Nur eigene Wörter' : 'Eigene + mitgelieferte';
@@ -3551,7 +3623,7 @@ function renderOwnContent() {
 function renderCardSets() {
   const on = activeSets();
   const box = $('cardset-chips');
-  box.innerHTML = CARD_SETS.map(s => {
+  box.innerHTML = allCardSets().map(s => {
     const n = s.get().length;
     return `<button class="chip ${on.includes(s.id) ? 'on' : ''} ${s.adult ? 'adult' : ''}"
               data-set="${s.id}" ${n ? '' : 'disabled'}>${s.label} (${n})</button>`;
@@ -3577,17 +3649,13 @@ $('btn-save-words').onclick = () => {
   renderOwnContent();
   $('words-status').textContent = `✅ ${list.length} eigene Wörter gespeichert.`;
 };
-$('btn-save-cards').onclick = () => {
-  const list = parseLines($('inp-own-cards').value);
-  store.set(OWN.cards, list);
-  renderOwnContent();
-  $('cards-status').textContent = `✅ ${list.length} eigene Karten gespeichert.`;
-};
-$('btn-save-cards18').onclick = () => {
-  const list = parseLines($('inp-own-cards18').value);
-  store.set(OWN.cards18, list);
-  renderOwnContent();
-  $('cards18-status').textContent = `✅ ${list.length} 18+-Karten gespeichert.`;
+$('btn-add-set').onclick = () => {
+  const name = prompt('Wie soll die neue Kategorie heißen?', 'Tiere');
+  if (name === null) return;
+  const list = ownSets();
+  list.push({ id: newSetId(), name: name.trim() || 'Neue Kategorie', cards: [], adult: false });
+  saveOwnSets(list);
+  renderOwnSets(); renderCardSets();
 };
 $('chip-ownwords-only').onclick = () => {
   settings.ownWordsOnly = !settings.ownWordsOnly;
@@ -3595,7 +3663,7 @@ $('chip-ownwords-only').onclick = () => {
   wordState.used = [];
 };
 $('btn-export-content').onclick = () => {
-  const data = { words: ownWords(), cards: ownCards(), cards18: ownCards18() };
+  const data = { words: ownWords(), sets: ownSets() };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
