@@ -183,11 +183,14 @@ code.uri {
   margin-top: 9px; overflow-wrap: break-word;
 }
 .pack-card .meta { font-size: .72rem; color: var(--text-muted); margin-top: 4px; }
-.pack-del {
-  position: absolute; top: 15px; right: 15px; width: 30px; height: 30px; border-radius: 50%;
+.pack-del, .pack-sync {
+  position: absolute; top: 15px; width: 30px; height: 30px; border-radius: 50%;
   background: rgba(18,18,20,.82); border: none; color: var(--text); font-size: .85rem;
   display: flex; align-items: center; justify-content: center; cursor: pointer; backdrop-filter: blur(4px);
 }
+.pack-del  { right: 15px; }
+.pack-sync { left: 15px; font-size: 1rem; }
+.pack-sync.busy { animation: spin 1s linear infinite; }
 .empty-state { text-align: center; padding: 36px 20px; }
 .empty-state .ico { font-size: 2.8rem; margin-bottom: 12px; }
 
@@ -291,6 +294,12 @@ code.uri {
   transform: translateY(12px); box-shadow: 0 2px 0 #7a0e39, 0 6px 20px rgba(236,72,153,.4);
 }
 .buzzer.armed { animation: buzzPulse 1.4s ease-in-out infinite; }
+/* Kompakter Buzzer in der Host-Ansicht */
+.host-buzz-wrap { display: flex; justify-content: center; margin-top: 14px; }
+.buzzer.host { width: min(52vw, 190px); font-size: 1.5rem; box-shadow: 0 10px 0 #7a0e39, 0 16px 34px rgba(236,72,153,.45); }
+.buzzer.host:not(:disabled):active, .buzzer.host.pressed {
+  transform: translateY(9px); box-shadow: 0 1px 0 #7a0e39, 0 5px 16px rgba(236,72,153,.4);
+}
 @keyframes buzzPulse { 50% { box-shadow: 0 14px 0 #7a0e39, 0 22px 60px rgba(236,72,153,.85); } }
 .pl-result { text-align: center; font-family: var(--font-mono); font-weight: 700;
   font-size: 1.3rem; color: var(--amber); min-height: 32px; }
@@ -621,6 +630,8 @@ https://open.spotify.com/playlist/…"></textarea>
     <div class="card">
       <h2 class="h2">🔔 Buzzer (Firebase)</h2>
       <p class="body-sm">Für den Buzzer-Modus brauchst du ein kostenloses Firebase-Projekt mit <b>Realtime Database</b> und aktivierter <b>anonymer Anmeldung</b>. Füge hier den Konfigurations-Block aus der Firebase-Konsole ein.</p>
+      <label style="margin-top:12px">Dein Anzeigename (als Gastgeber)</label>
+      <input type="text" id="inp-host-name" placeholder="z. B. Uli" autocomplete="off" maxlength="18">
       <label style="margin-top:12px">Firebase-Konfiguration</label>
       <textarea id="inp-fb-config" rows="4" placeholder='{ "apiKey": "...", "authDomain": "...", "databaseURL": "https://....firebasedatabase.app", "projectId": "..." }'></textarea>
       <button class="btn btn-purple" id="btn-fb-save">Speichern &amp; verbinden</button>
@@ -731,7 +742,9 @@ https://open.spotify.com/playlist/…"></textarea>
         <div id="bz-ranking" class="rank-list"></div>
       </div>
       <button class="btn btn-cyan" id="btn-bz-open">🔔 Buzzer freigeben</button>
-      <button class="btn btn-pink hidden" id="btn-bz-self">✋ Selbst buzzern</button>
+      <div class="host-buzz-wrap hidden" id="bz-self-wrap">
+        <button class="buzzer host" id="btn-bz-self">BUZZ</button>
+      </div>
       <div class="hl-row hidden" id="bz-judge">
         <button class="btn btn-primary" id="btn-bz-ok">✓ Punkt</button>
         <button class="btn btn-ghost" id="btn-bz-no">✗ Weiter freigeben</button>
@@ -1131,6 +1144,7 @@ function renderPacks() {
       ${pack.cover ? `<img class="cover" src="${pack.cover}" alt="">`
                    : '<div class="cover cover-empty">🎵</div>'}
       <button class="pack-del" title="Entfernen">✕</button>
+      <button class="pack-sync" title="Neue Songs aus der Playlist holen">↻</button>
       <div class="name"></div>
       <div class="meta">${pack.tracks.length} Songs · ${remaining > 0 ? remaining + ' übrig' : 'alle gespielt 🎉'}</div>`;
     card.querySelector('.name').textContent = pack.name;
@@ -1138,6 +1152,22 @@ function renderPacks() {
     card.querySelector('.pack-del').onclick = (e) => {
       e.stopPropagation();
       const list = getPacks(); list.splice(i, 1); savePacks(list); renderPacks();
+    };
+    // Playlist in Spotify geändert? Hier neue Songs nachholen.
+    card.querySelector('.pack-sync').onclick = async (e) => {
+      e.stopPropagation();
+      const btn = e.currentTarget;
+      btn.classList.add('busy');
+      const before = pack.tracks.length;
+      const res = await addPlaylistById(pack.id);
+      btn.classList.remove('busy');
+      if (!res.ok) { alert(res.error); return; }
+      const after = (getPacks().find(p => p.id === pack.id)?.tracks.length) ?? before;
+      renderPacks();
+      const diff = after - before;
+      alert(diff > 0 ? `${diff} neue Songs übernommen.`
+           : diff < 0 ? `${-diff} Songs sind in der Playlist nicht mehr enthalten.`
+           : 'Keine Änderungen – das Pack war schon aktuell.');
     };
     grid.appendChild(card);
   });
@@ -1262,6 +1292,7 @@ function renderChips() {
                 : 'Konfiguration hinterlegt (' + (cfg.projectId || 'Projekt') + ') – Verbindung entsteht beim Spielstart.')
     : 'Keine Konfiguration hinterlegt.';
   if (cfg && !$('inp-fb-config').value) $('inp-fb-config').value = JSON.stringify(cfg, null, 1);
+  if (!$('inp-host-name').value) $('inp-host-name').value = store.get('hitrater_host_name', '') || '';
 }
 /* Balken-Grafik der beiden Wiedergabe-Karten (rein dekorativ) */
 function drawBars(el, peakCenter) {
@@ -1511,7 +1542,7 @@ function startWordGame() {
 /* ============ Spiel ============ */
 let game = { packIndex: -1, current: null, revealed: false, trackEnded: false,
              gameMode: 'classic', ref: null, streak: 0, round: 0,
-             fullPlay: false, forceSdk: false, cutAt: 0 };
+             fullPlay: false, forceSdk: false, cutAt: 0, started: false };
 let inGame = false, wakeLock = null;
 let playbackStartMs = 0;
 let sdkPoll = null;
@@ -1626,10 +1657,10 @@ async function startGame(packIndex) {
   }
   startSdkPoll();
   if (game.gameMode === 'buzzer') {
-    try { await hostCreateRoom(); }
+    try { await hostEnsureRoom(); }
     catch (e) { alert('Buzzer-Raum konnte nicht angelegt werden:\n' + e.message); }
   }
-  nextRound(true);
+  nextRound(false);      // erste Runde ebenfalls per Play starten
 }
 let roundBusy = false;
 async function nextRound(autoplay = false) {
@@ -1673,27 +1704,63 @@ async function runRound(autoplay) {
   ringReset();
   playbackStartMs = 0;
 
+  // Der Song startet erst auf Tastendruck – so hat der Gastgeber die Runde
+  // in der Hand und niemand wird von losspielender Musik überrascht.
+  game.started = false;
+  const waitingHint = game.gameMode === 'buzzer'
+    ? '▶ Play startet den Song und gibt gleichzeitig die Buzzer frei'
+    : '▶ Play drücken, wenn alle bereit sind';
+
   if (usingSdk()) {
-    $('play-hint').textContent = 'Aus welchem Jahr ist dieser Song?';
-    try {
-      await sdkPlayTrack(track);
-      ringSync(0, true);
-    } catch (e) {
-      $('play-hint').textContent = 'Wiedergabe fehlgeschlagen – Vorschau wird genutzt. (' + e.message + ')';
+    $('play-hint').textContent = autoplay ? 'Aus welchem Jahr ist dieser Song?' : waitingHint;
+    if (autoplay) {
+      try {
+        await sdkPlayTrack(track);
+        game.started = true;
+        ringSync(0, true);
+      } catch (e) {
+        $('play-hint').textContent = 'Wiedergabe fehlgeschlagen – Vorschau wird genutzt. (' + e.message + ')';
+        sdkReady = false;
+        ensureEmbed(track.id, () => setTimeout(() => { embedController.play(); game.started = true; }, 400));
+      }
+    }
+    return;
+  }
+  if (game.gameMode !== 'sing') {
+    $('play-hint').textContent = autoplay
+      ? (settings.playback === 'preview'
+          ? 'Aus welchem Jahr ist dieser Song? (Spotify-Vorschau)'
+          : 'Aus welchem Jahr ist dieser Song? (Vorschau – volle Wiedergabe nicht verfügbar)')
+      : waitingHint;
+  }
+  // Der Embed lädt den Titel, spielt ihn aber nicht von selbst an
+  ensureEmbed(track.id, () => {
+    if (autoplay && embedController) setTimeout(() => { embedController.play(); game.started = true; }, 400);
+  });
+}
+/* Erster Play-Druck einer Runde: Song starten – und im Buzzer-Modus
+   gleichzeitig die Buzzer freigeben, damit man das nicht vergessen kann. */
+async function startCurrent() {
+  const t = game.current;
+  if (!t) return;
+  game.started = true;
+  $('play-hint').textContent = 'Aus welchem Jahr ist dieser Song?';
+  if (usingSdk()) {
+    try { await sdkPlayTrack(t); ringSync(0, true); }
+    catch (e) {
       sdkReady = false;
-      ensureEmbed(track.id, () => { if (autoplay && embedController) setTimeout(() => embedController.play(), 400); });
+      ensureEmbed(t.id, () => setTimeout(() => embedController.play(), 300));
     }
-  } else {
-    if (game.gameMode !== 'sing') {
-      $('play-hint').textContent = settings.playback === 'preview'
-        ? 'Aus welchem Jahr ist dieser Song? (Spotify-Vorschau)'
-        : 'Aus welchem Jahr ist dieser Song? (Vorschau – volle Wiedergabe nicht verfügbar)';
-    }
-    ensureEmbed(track.id, () => { if (autoplay && embedController) setTimeout(() => embedController.play(), 400); });
+  } else if (embedController) {
+    embedController.play();
+  }
+  if (game.gameMode === 'buzzer') {
+    try { await hostOpenBuzzer(); } catch {}
   }
 }
 async function togglePlayPause() {
   buzz();
+  if (!game.started) { await startCurrent(); return; }   // erster Druck startet die Runde
   if (usingSdk() && sdkPlayer) {
     const state = await sdkPlayer.getCurrentState();
     // Ausschnitt bereits durchgelaufen → von der Startposition neu anspielen
@@ -1788,7 +1855,8 @@ function renderModeUi() {
   $('buzz-panel').classList.toggle('hidden', !bz);
   if (bz) {
     $('btn-bz-open').textContent = '🔔 Buzzer freigeben';
-    $('btn-bz-self').classList.add('hidden');
+    $('bz-self-wrap').classList.add('hidden');
+    $('btn-bz-self').classList.remove('armed', 'pressed');
     $('bz-ranking').innerHTML = '';
     $('bz-judge').classList.add('hidden');
     room.state = 'locked';
@@ -1908,7 +1976,8 @@ function leaveGame() {
   inGame = false; releaseWakeLock(); ringReset(); stopSdkPoll();
   cancelAnimationFrame(ring.raf);
   resetGlow();
-  if (room.isHost) hostCloseRoom();
+  // Raum NICHT schließen – die Gäste bleiben für das nächste Pack verbunden
+  if (room.isHost && room.ref) room.ref.update({ state: 'locked' }).catch(() => {});
   openPacks();
 }
 function openPacks() {
@@ -2061,6 +2130,12 @@ async function connectFirebase() {
   return true;
 }
 const SV_TIMESTAMP = () => window.firebase.database.ServerValue.TIMESTAMP;
+function hostName() { return (store.get('hitrater_host_name') || '').trim() || 'Gastgeber'; }
+/* Reaktionszeiten lesbar: 3022 ms sagt weniger als 3,02 s */
+function fmtReaction(ms) {
+  const s = (ms || 0) / 1000;
+  return s.toFixed(2).replace('.', ',') + ' s';
+}
 function randomRoomCode() {
   return Array.from({ length: 4 }, () =>
     ROOM_ALPHABET[Math.floor(Math.random() * ROOM_ALPHABET.length)]).join('');
@@ -2077,7 +2152,17 @@ function detachRoom() {
 }
 function watch(ref, ev, cb) { ref.on(ev, cb); room.listeners.push({ ref, ev, cb }); }
 
-/* ---------------- Host ---------------- */
+/* ---------------- Host ----------------
+   Der Raum überlebt bewusst den Pack-Wechsel: Die Gäste bleiben verbunden
+   und müssen nicht jedes Mal neu scannen. Geschlossen wird er erst beim
+   Verlassen des Buzzer-Modus. */
+async function hostEnsureRoom() {
+  if (room.isHost && room.ref && room.code) {
+    $('bz-code').textContent = room.code;
+    return room.code;
+  }
+  return hostCreateRoom();
+}
 async function hostCreateRoom() {
   await connectFirebase();
   detachRoom();
@@ -2090,10 +2175,13 @@ async function hostCreateRoom() {
     state: 'locked',
     round: 0,
     createdAt: SV_TIMESTAMP(),
-    players: { [fb.uid]: { name: 'Host', score: 0, joinedAt: SV_TIMESTAMP() } },
+    players: { [fb.uid]: { name: hostName(), score: 0, joinedAt: SV_TIMESTAMP() } },
   });
   room.ref.onDisconnect().remove();          // Raum verschwindet, wenn der Host geht
   $('bz-code').textContent = code;
+  // QR-Zwischenspeicher leeren, sonst zeigt er auf den alten Raum
+  const qr = $('bz-qr-box');
+  qr.innerHTML = ''; delete qr.dataset.done; qr.classList.add('hidden');
   watch(room.ref.child('players'), 'value', (snap) => renderHostPlayers(snap.val() || {}));
   watch(room.ref.child('buzzes'), 'value', (snap) => renderHostRanking(snap.val() || {}));
   return code;
@@ -2118,7 +2206,7 @@ function renderHostRanking(buzzes) {
     <div class="rank-row ${i === 0 ? 'first' : ''}">
       <span class="pos">${i + 1}</span>
       <span class="nm"></span>
-      <span class="ms">${Math.round(b.delta ?? 0)} ms</span>
+      <span class="ms">${fmtReaction(b.delta)}</span>
     </div>`).join('');
   el.querySelectorAll('.nm').forEach((n, i) => { n.textContent = list[i].name || '?'; });
   $('bz-judge').classList.remove('hidden');
@@ -2128,14 +2216,24 @@ async function hostOpenBuzzer() {
   if (!room.ref) return;
   buzz();
   await room.ref.child('buzzes').remove();
-  await room.ref.update({ state: 'open', round: game.round, openedAt: SV_TIMESTAMP() });
+  // openSeq zählt bei JEDER Freigabe hoch. Würden die Spieler nur auf
+  // state lauschen, käme bei einer zweiten Freigabe im selben Zustand
+  // („open" → „open") gar kein Ereignis an und die Buzzer blieben gesperrt.
+  room.seq = (room.seq || 0) + 1;
+  await room.ref.update({
+    state: 'open', round: game.round, openSeq: room.seq, openedAt: SV_TIMESTAMP(),
+  });
   // Der Host misst seine eigene Reaktionszeit nach derselben Regel
   room.state = 'open';
   room.t0 = performance.now();
   $('bz-ranking').innerHTML = '';
   $('bz-judge').classList.add('hidden');
   $('btn-bz-open').textContent = '🔔 Buzzer ist frei';
-  $('btn-bz-self').classList.remove('hidden');
+  const self = $('btn-bz-self');
+  self.disabled = false;
+  self.classList.remove('pressed');
+  self.classList.add('armed');
+  $('bz-self-wrap').classList.remove('hidden');
 }
 async function hostJudge(correct) {
   const first = lastRanking[0];
@@ -2191,15 +2289,25 @@ async function playerJoin(code, name) {
   await me.update({ name, joinedAt: SV_TIMESTAMP() });
   me.onDisconnect().remove();
   acquireWakeLock();                       // Display darf nicht einschlafen
-  watch(room.ref.child('state'), 'value', (snap) => {
-    const st = snap.val() || 'locked';
+  // Ein Listener auf Zustand und Freigabe-Zähler zusammen. Nur auf „state"
+  // zu lauschen reichte nicht: Bei einer zweiten Freigabe bleibt der Wert
+  // „open", es gäbe kein Ereignis und die Buzzer blieben gesperrt.
+  let lastSeq = -1;
+  watch(room.ref.child('openSeq'), 'value', async (snap) => {
+    const seq = snap.val() ?? 0;
+    const st = (await room.ref.child('state').get()).val() || 'locked';
     room.state = st;
-    if (st === 'open') {
-      room.t0 = performance.now();         // Nullpunkt: Eintreffen der Freigabe
+    if (st === 'open' && seq !== lastSeq) {
+      lastSeq = seq;
+      room.t0 = performance.now();       // Nullpunkt: Eintreffen der Freigabe
       armBuzzer(true);
-    } else {
+    } else if (st !== 'open') {
       armBuzzer(false);
     }
+  });
+  watch(room.ref.child('state'), 'value', (snap) => {
+    room.state = snap.val() || 'locked';
+    if (room.state !== 'open') armBuzzer(false);
   });
   watch(room.ref.child('players/' + fb.uid + '/score'), 'value', (snap) => {
     const s = snap.val() || 0;
@@ -2211,7 +2319,7 @@ async function playerJoin(code, name) {
     if (!mine) { $('pl-result').textContent = ''; return; }
     const sorted = Object.values(all).sort((a, b) => (a.delta ?? 1e9) - (b.delta ?? 1e9));
     const pos = sorted.findIndex(b => b.delta === mine.delta) + 1;
-    $('pl-result').textContent = `${Math.round(mine.delta)} ms · Platz ${pos}`;
+    $('pl-result').textContent = `${fmtReaction(mine.delta)} · Platz ${pos}`;
   });
 }
 function armBuzzer(on) {
@@ -2243,13 +2351,20 @@ async function doBuzz() {
     $('btn-buzz').disabled = false;
   }
 }
-/* Host buzzt aus der Spielansicht heraus mit */
+/* Host buzzt aus der Spielansicht heraus mit – gleiche Messregel wie bei
+   den Gästen, damit niemand durch die Rolle bevorteilt wird. */
 async function hostSelfBuzz() {
   if (!room.ref || room.state !== 'open') return;
   const delta = performance.now() - room.t0;
-  await room.ref.child('buzzes/' + fb.uid).set({
-    round: game.round, delta: Math.round(delta), name: 'Host', t: SV_TIMESTAMP(),
-  });
+  const b = $('btn-bz-self');
+  b.classList.add('pressed');           // sofortige Rückmeldung
+  b.disabled = true;
+  buzz(60);
+  try {
+    await room.ref.child('buzzes/' + fb.uid).set({
+      round: game.round, delta: Math.round(delta), name: hostName(), t: SV_TIMESTAMP(),
+    });
+  } catch { b.disabled = false; b.classList.remove('pressed'); }
 }
 
 /* ============ Events ============ */
@@ -2278,7 +2393,11 @@ $('btn-settings-back').onclick = () => {
   if (settingsReturn === 'view-words') { renderWordChips(); }
   show(settingsReturn);
 };
-$('btn-packs-back').onclick = () => show('view-modes');
+$('btn-packs-back').onclick = () => {
+  // Buzzer-Modus wirklich verlassen → jetzt darf der Raum weg
+  if (room.isHost) hostCloseRoom();
+  show('view-modes');
+};
 $('mode-classic').onclick = () => chooseMode('classic');
 $('mode-highlow').onclick = () => chooseMode('highlow');
 $('mode-words').onclick   = () => chooseMode('words');
@@ -2306,9 +2425,15 @@ $('btn-pl-join').onclick  = async () => {
     $('btn-pl-join').disabled = false;
   }
 };
+$('inp-host-name').onchange = () => {
+  store.set('hitrater_host_name', $('inp-host-name').value.trim());
+  // Name auch in einem laufenden Raum sofort übernehmen
+  if (room.isHost && room.ref) room.ref.child('players/' + fb.uid + '/name').set(hostName()).catch(() => {});
+};
 $('btn-fb-save').onclick = async () => {
   hideErr('fb-err');
   try {
+    store.set('hitrater_host_name', $('inp-host-name').value.trim());
     const cfg = parseFbConfig($('inp-fb-config').value);
     store.set('hitrater_fb_config', cfg);
     fb.ready = false;
@@ -2361,7 +2486,7 @@ $('pb-preview').onclick = () => { settings.playback = 'preview'; saveSettings();
 $('btn-play').onclick   = togglePlayPause;
 $('btn-reveal').onclick = reveal;
 $('btn-replay').onclick = replayFull;
-$('btn-next').onclick   = () => { buzz(); nextRound(true); };
+$('btn-next').onclick   = () => { buzz(); nextRound(false); };   // Start per Play
 $('btn-back').onclick   = leaveGame;
 
 /* ============ Routing ============ */
