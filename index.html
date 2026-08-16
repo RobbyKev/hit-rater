@@ -664,9 +664,17 @@ https://open.spotify.com/playlist/…"></textarea>
       <div id="words-status" class="body-sm" style="margin-top:8px"></div>
 
       <label style="margin-top:18px">🃏 Eigene Situationskarten – eine pro Zeile</label>
-      <textarea id="inp-own-cards" rows="4" placeholder="Wenn dein Chef freitags um 16:50 noch was will&#10;Wenn du merkst, dass du seit 20 Minuten falsch mitsingst"></textarea>
+      <textarea id="inp-own-cards" rows="4" placeholder="Der Song, der läuft, wenn …"></textarea>
       <button class="btn btn-purple" id="btn-save-cards">Karten speichern</button>
       <div id="cards-status" class="body-sm" style="margin-top:8px"></div>
+
+      <label style="margin-top:18px">🔞 Situationskarten ab 18 – eine pro Zeile</label>
+      <textarea id="inp-own-cards18" rows="4" placeholder="Nur für Runden unter Erwachsenen …"></textarea>
+      <div class="chips" style="margin-top:10px">
+        <button class="chip" id="chip-cards18">18+ dazunehmen</button>
+      </div>
+      <button class="btn btn-purple" id="btn-save-cards18">18+-Karten speichern</button>
+      <div id="cards18-status" class="body-sm" style="margin-top:8px"></div>
 
       <button class="btn btn-ghost" id="btn-export-content">Eigene Inhalte sichern</button>
       <p class="body-sm" style="margin-top:8px">Lädt eine Datei herunter – praktisch als Sicherung oder um deine Texte auf ein anderes Gerät zu bringen.</p>
@@ -1439,7 +1447,7 @@ async function loadMyPlaylists() {
 let settings = Object.assign(
   { mode: 'random', auto: false, showPlayer: false, len: 30, start: 'begin',
     playback: 'full',            // 'full' = ganze Titel (SDK) | 'preview' = 30-Sek-Clip
-    fixYears: true, bestStreak: 0, wordLang: 'both', wordTimer: 0, ownWordsOnly: false },
+    fixYears: true, bestStreak: 0, wordLang: 'both', wordTimer: 0, ownWordsOnly: false, cards18: false },
   store.get(LS.settings, {})
 );
 function saveSettings() { store.set(LS.settings, settings); }
@@ -1641,14 +1649,194 @@ const WORDS_EN = [
   'Never','Always','Again','Tonight','Tomorrow','Yesterday','Everything','Nothing','Somebody','Nobody',
   'Radio','Music','Song','Party','Weekend','Friday','Rock','Roll','Highway','Summertime',
 ];
+/* ============================================================
+   Situationskarten für den Match-Modus
+   Song läuft offen und hörbar – gesucht ist nicht der Titel, sondern die
+   Karte, die am besten dazu passt. Entschieden wird von der Runde.
+   ============================================================ */
+const CARDS_BASE = [
+  "Der Song, der läuft, wenn man leise eine Packung Chips um 23:00 Uhr öffnen möchte.",
+  "Das spiele ich ab, wenn die Zapfsäule exakt auf den vollen Euro-Betrag springt.",
+  "Die Melodie in meinem Kopf, wenn der Rasen frisch gemäht ist.",
+  "Der Vibe, wenn der Paketbote klingelt und ich in Socken zur Tür hechte.",
+  "Das läuft bei mir, wenn ich den Staubsaugerstecker mit einem gezielten Ruck aus der Steckdose ziehe.",
+  "Der Soundtrack, wenn man nach 10 Minuten Suchen merkt, dass das Handy in der eigenen Hand liegt.",
+  "Wie es sich anfühlt, den Herd dreimal zu kontrollieren, bevor man das Haus verlässt.",
+  "Die Musik für den Versuch, einen aufgequollenen Müllsack schadenfrei aus der Tonne zu ziehen.",
+  "Das spiele ich ab, wenn der Teig perfekt aufgeht.",
+  "Der Song, wenn man den USB-Stick direkt beim ersten Versuch richtig herum einsteckt.",
+  "Wie sich der Moment anfühlt, wenn die Kaffeemaschine den ersten Tropfen abgibt.",
+  "Der Soundtrack für das stundenlange Suchen nach der zweiten passenden Socke.",
+  "Das läuft im Hintergrund, wenn die Einkauftüte kurz vor der Haustür reißt.",
+  "Wie ich mich fühle, wenn ich eine Fliege mit der Hand fange.",
+  "Die Musik, wenn man versucht, ein Blech Kuchen unfallfrei aus dem Ofen zu balancieren.",
+  "Das spiele ich laut ab, wenn der Kuchen zerbricht und ich ihn mit Puderzucker rette.",
+  "Der Vibe, wenn man am Sonntag feststellt, dass man vergessen hat, Milch zu kaufen.",
+  "Das geht mir durch den Kopf, wenn ich versuche, eine komplizierte Aufbauanleitung zu verstehen.",
+  "Der Soundtrack für das Auspacken eines nagelneuen Elektronik-Gadgets.",
+  "Die Hintergrundmusik, wenn man im Sommer auf einer heißen Leder-Couch festklebt.",
+  "Das würde ich anmachen, um ein unangenehmes Schweigen im Fahrstuhl noch unangenehmer zu machen.",
+  "Der Song, der gespielt werden muss, wenn jemand gegen eine Glastür läuft und so tut, als wäre nichts passiert.",
+  "Das spiele ich ab, wenn ich merke, dass ich seit 5 Minuten in die falsche Richtung gelaufen bin und winken muss.",
+  "Die Nationalhymne meines inneren Schweinehundes, wenn mir jemand um 21:00 Uhr „Spontan noch was machen?“ schreibt.",
+  "Wie ich mich fühle, wenn die Kassiererin die Artikel schneller scannt, als ich einpacken kann.",
+  "Der Vibe, wenn man im Supermarkt die schnellste Kasse wählt und die Person vor einem anfängt, Cent-Münzen zu zählen.",
+  "Das spiele ich ab, wenn die Schwiegereltern unangemeldet vor der Tür stehen.",
+  "Die Musik, wenn man im Restaurant merkt, dass man seinen Geldbeutel vergessen hat.",
+  "Wie es sich anfühlt, wenn man in der Gruppe einen Witz erzählt und niemand lacht.",
+  "Der Soundtrack, wenn man versehentlich eine Sprachnachricht an die falsche Person schickt.",
+  "Das würde ich aufdrehen, um dem Nachbarn bei seinen Sonntags-Heimwerker-Aktionen Konter zu geben.",
+  "Wie ich mich fühle, wenn ich im Bus sitze und ganz dramatisch mit dem Kopf an der Scheibe simuliere, ich wäre in einem Musikvideo.",
+  "Der Song für den Moment, wenn man den Namen des Gegenübers nach 10 Minuten Gespräch immer noch nicht weiß.",
+  "Das spiele ich ab, wenn mir jemand ungefragt Ratschläge gibt.",
+  "Die Hintergrundmusik, wenn man versucht, sich unauffällig aus einer Party zu schleichen.",
+  "Der Vibe, wenn man auf der Straße jemanden grüßt, der eigentlich die Person hinter einem gemeint hat.",
+  "Das spiele ich ab, wenn die Gruppe stundenlang diskutiert, was gegessen werden soll.",
+  "Wie sich der Moment anfühlt, wenn man beim Essen gekleckert hat und es mit Spucke wegzureiben versucht.",
+  "Der Soundtrack für den Versuch, auf Eis unauffällig nicht auszurutschen.",
+  "Die Musik, wenn die Eltern versuchen, ein Reel oder TikTok zu verstehen.",
+  "Das geht mir durch den Kopf, wenn mein Akku nur noch 1% hat und das Ladekabel nicht auffindbar ist.",
+  "Der Song, der perfekt beschreibt, wie ich am Montagmorgen um 6:00 Uhr aus dem Bett steige.",
+  "Das läuft, wenn das Navi mitten in der Pampa plötzlich sagt: „In 100 Metern bitte wenden.“",
+  "Die Melodie, wenn das WLAN genau in den letzten zwei Minuten des Filmfinales abstürzt.",
+  "Das spiele ich ab, wenn der Drucker spontan beschließt, eine Datei als Pixelbrei auszudrucken.",
+  "Der Soundtrack für die Entscheidung: „Lohnt es sich noch, für 2 Stunden Schlaf ins Bett zu gehen?“",
+  "Wie sich mein Gehirn anfühlt, wenn ich 15 Browser-Tabs gleichzeitig offen habe.",
+  "Die Musik, wenn die Handwerker-Rechnung im Briefkasten liegt.",
+  "Der Vibe, wenn der Chef in die Videokonferenz platzt und man vergessen hat, sich stummzuschalten.",
+  "Das spiele ich ab, wenn der Feierabend um 16:59 Uhr durch eine „dringende Mail“ ruiniert wird.",
+  "Der Soundtrack, wenn man beim Onlineshopping den Warenkorb füllt und bei der Gesamtsumme erschrickt.",
+  "Die Melodie für das Gefühl, wenn ein Download nach 3 Stunden bei 99% abbricht.",
+  "Das läuft im Hintergrund, wenn man versucht, den Passwort-Reset-Code einzugeben, bevor der Timer abläuft.",
+  "Wie es sich anfühlt, wenn die Autowerkstatt anruft und sagt: „Wir haben da noch was gefunden...“",
+  "Der Song für den Moment, wenn man auf „Allen antworten“ statt auf „Antworten“ klickt.",
+  "Das spiele ich ab, wenn das Update bei 99% seit einer Stunde hängt.",
+  "Die Hintergrundmusik, wenn das GPS den Standort komplett in den Ozean setzt.",
+  "Der Vibe, wenn man am Montag merkt, dass man am Freitag vergessen hat, die Kaffeemaschine auszuschalten.",
+  "Das spiele ich laut, wenn die Präsentation ohne Fehlermeldung durchläuft.",
+  "Der Soundtrack, wenn man den Laptop einklemmt und hofft, dass das Display nicht gerissen ist.",
+  "Der Soundtrack, wenn mein Hund merkt, dass wir nicht zum Park, sondern zum Tierarzt fahren.",
+  "Die Hintergrundmusik, wenn man versucht, ein aufgedrehtes Haustier davon abzuhalten, etwas Unbekanntes zu fressen.",
+  "Der Song, der läuft, während ich verzweifelt versuche, eine Mücke um 3:00 Uhr nachts im Schlafzimmer zu jagen.",
+  "Wie sich die ersten fünf Sekunden beim Eintauchen in kaltes Wasser anfühlen.",
+  "Das spiele ich ab, wenn die Katze um 4:00 Uhr morgens entscheidet, dass jetzt Spielzeit ist.",
+  "Der Vibe, wenn man beim Wandern merkt, dass der Weg auf der Karte gar nicht existiert.",
+  "Das geht mir durch den Kopf, wenn eine Wespe ganz nah an meinem Ohr vorbeisummt.",
+  "Die Musik für den epischen Moment, wenn der Fisch endlich an der Angel anbeißt.",
+  "Das spiele ich ab, wenn der Hund sich im matschigsten Loch der Wiese wälzt.",
+  "Der Soundtrack, wenn man merkt, dass die Sonnencreme vor zwei Stunden abgelaufen ist.",
+  "Wie sich der Vibe anfühlt, wenn der Grill endlich ohne chemische Anzünder brennt.",
+  "Die Melodie, wenn man beim Camping feststellt, dass die Heringe der Zeltbefestigung fehlen.",
+  "Das läuft im Hintergrund, wenn die Vögel morgens um 4:30 Uhr anfangen, extrem laut zu zwitschern.",
+  "Der Song für den Moment, wenn man im Garten die erste eigene Tomate erntet.",
+  "Das spiele ich ab, wenn die Möwe am Strand versucht, mein Fischbrötchen zu stehlen.",
+  "Die Musik, wenn der Mähroboter mitten im Garten ohne Akku stehen bleibt.",
+  "Wie sich der Moment anfühlt, wenn die Katze das teure Spielzeug ignoriert und im Karton schläft.",
+  "Der Vibe beim Versuch, bei Windstärke 6 eine Tischdecke auf dem Gartentisch auszubreiten.",
+  "Das läuft bei mir, wenn die Gartenarbeit geschafft ist und das erste Kaltgetränk offen ist.",
+  "Der Soundtrack für den Versuch, einen Hund nach dem Regenspaziergang abzutrocknen.",
+  "Die Musik, die läuft, wenn ich mir beim Kochen den Zeh stoße, aber leise bleiben muss.",
+  "Das geht mir durch den Kopf, wenn ich heimlich um 2:00 Uhr morgens den Kühlschrank plündere.",
+  "Der Song, der meine Laune ausdrückt, wenn ich die Kanten eines Puzzles nicht finde.",
+  "Wie sich mein innerer Zustand anfühlt, wenn ich versuche, beim Einparken in eine viel zu enge Lücke nicht ins Schwitzen zu kommen.",
+  "Die perfekte Hintergrundmusik, um ganz dramatisch aus dem Fenster zu schauen, während es regnet.",
+  "Das spiele ich ab, wenn ich den ersten Schluck eines perfekt temperierten Getränks nehme.",
+  "Der Vibe, wenn man am Freitag um 15:00 Uhr die Autotür zum Feierabend schließt.",
+  "Das spiele ich ab, wenn mir im Nachhinein die perfekte Antwort auf ein Argument von gestern einfällt.",
+  "Die Melodie für den Moment, wenn man eine Hose anzieht und einen 20-Euro-Schein in der Tasche findet.",
+  "Wie es sich anfühlt, wenn man bei einem Brettspiel kurz vor dem Sieg steht und der Würfel falsch fällt.",
+  "Das läuft bei mir, wenn die Friseurin fragt: „Gefällt es Ihnen?“ und ich lügen muss.",
+  "Der Soundtrack für das Gefühl, wenn man im Urlaub am Strand ankommt.",
+  "Die Musik für den Moment, wenn man den letzten Keks aus der Packung nimmt.",
+  "Das geht mir durch den Kopf, wenn der Teewasser-Kessel anfängt zu pfeifen.",
+  "Der Vibe, wenn man auf einer Party endlich das eine Lied hört, auf das man den ganzen Abend gewartet hat.",
+  "Das spiele ich ab, wenn ich beim Zähneputzen bemerke, dass ich den falschen Schlafanzug anhabe.",
+  "Die Melodie für den Versuch, ein Niesen in einem absolut stillen Raum zu unterdrücken.",
+  "Das läuft im Hintergrund, wenn man die Wohnung grundreinigt, weil Besuch angekündigt ist.",
+  "Der Song für den Moment, wenn man realisiert, dass das Wochenende schon wieder vorbei ist.",
+  "Das spiele ich ab, wenn nach einem langen Tag endlich die Schuhe ausgezogen werden.",
+  // --- Ergänzungen ---
+  "Der Song für den Moment, wenn die Bahn „wenige Minuten später“ sagt und alle wissen, es sind vierzig.",
+  "Das spiele ich ab, wenn ich im Wartezimmer als Einziger keine Zeitschrift ergattert habe.",
+  "Die Musik, wenn die Sachbearbeiterin sagt: „Da fehlt noch ein Formular.“",
+  "Der Vibe, wenn man im Fitnessstudio das Gerät benutzt, das man sich vorher heimlich erklären ließ.",
+  "Das läuft, wenn das Kind im Supermarkt genau vor den Süßigkeiten stehen bleibt.",
+  "Der Soundtrack, wenn man den Weihnachtsbaum zum vierten Mal geradedreht hat.",
+  "Die Melodie, wenn das Geschenkpapier exakt zwei Zentimeter zu kurz ist.",
+  "Das spiele ich ab, wenn an Silvester die Rakete umkippt und alle wegrennen.",
+  "Der Song, wenn der Streamingdienst fragt: „Bist du noch da?“",
+  "Das läuft, wenn man drei Folgen weitergeschaut hat statt der einen.",
+  "Die Hintergrundmusik, wenn man ein Möbelstück allein die Treppe hochträgt.",
+  "Der Vibe, wenn die Bohrmaschine genau an der Stelle auf ein Rohr trifft.",
+  "Das spiele ich ab, wenn die Wasserwaage endlich mittig steht.",
+  "Der Soundtrack fürs Anstehen an der Sicherheitskontrolle mit dem Gürtel in der Hand.",
+  "Die Musik, wenn der eigene Koffer als Letzter aufs Band kommt.",
+  "Das läuft, wenn man das Hotelzimmer betritt und sofort auf den Balkon geht.",
+  "Wie es sich anfühlt, wenn man am Buffet den letzten Teller Nachtisch ergattert.",
+  "Der Vibe, wenn die Ampel auf Grün springt, sobald man endlich losgerannt ist.",
+  "Das spiele ich ab, wenn man die Parklücke findet, die alle anderen übersehen haben.",
+  "Die Melodie, wenn der Tank noch drei Kilometer Reichweite anzeigt.",
+  "Der Soundtrack, wenn das Auto durch den TÜV kommt.",
+  "Das läuft, wenn man an der Ampel neben jemandem steht, der lautstark mitsingt.",
+  "Wie sich der Moment anfühlt, wenn man rückwärts einparkt und jemand dabei zuschaut.",
+  "Die Musik, wenn der Nachbar sonntags um 7:00 Uhr den Laubbläser anwirft.",
+  "Der Song, wenn man im Treppenhaus jemandem begegnet und beide gleichzeitig ausweichen.",
+  "Das spiele ich ab, wenn das Paket beim Nachbarn liegt, der nie zu Hause ist.",
+  "Die Hintergrundmusik, wenn die Zwiebeln in der Pfanne genau richtig glasig sind.",
+  "Das läuft, wenn man das Rezept liest und merkt, dass drei Zutaten fehlen.",
+  "Der Soundtrack, wenn der Reis nach zwanzig Minuten immer noch hart ist.",
+  "Wie es sich anfühlt, wenn man das Messer schärft und es plötzlich wirklich schneidet.",
+  "Die Melodie, wenn die Pizza genau in dem Moment kommt, in dem der Film startet.",
+  "Das spiele ich ab, wenn man das letzte Stück Kuchen mit Blicken verteidigt.",
+  "Der Vibe, wenn man die Waschmaschine öffnet und ein rotes Teil zwischen der weißen Wäsche liegt.",
+  "Die Musik, wenn man das Bügelbrett aufbaut und es sofort wieder zusammenklappt.",
+  "Der Soundtrack, wenn der Staubsaugerbeutel mitten im Wohnzimmer platzt.",
+  "Das spiele ich ab, wenn man den Kleiderschrank ausmistet und am Ende alles behält.",
+  "Wie sich der Moment anfühlt, wenn das Bett frisch bezogen ist.",
+  "Der Song, wenn der Wecker klingelt und man merkt, es ist Samstag.",
+  "Das läuft, wenn man nachts aufwacht, zur Uhr schaut und noch drei Stunden hat.",
+  "Der Vibe, wenn die Heizung im Bad genau zum Aufstehen warm geworden ist.",
+  "Der Soundtrack, wenn man den Regenschirm aufspannt und der Wind ihn umdreht.",
+  "Die Musik, wenn die Sonne rauskommt, sobald man drinnen angekommen ist.",
+  "Das läuft, wenn man den ersten Schnee sieht und kurz wieder sechs Jahre alt ist.",
+  "Wie es sich anfühlt, wenn man barfuß auf einen Legostein tritt.",
+  "Der Song für den Moment, wenn das Kind zum ersten Mal durchschläft.",
+  "Das spiele ich ab, wenn der Kindergeburtstag vorbei ist und alle wieder weg sind.",
+  "Die Hintergrundmusik, wenn man ein Kinderfahrrad zusammenbaut und Schrauben übrig bleiben.",
+  "Der Vibe, wenn man beim Elternabend als Einziger die Hand hebt.",
+  "Der Soundtrack, wenn drei Klassenfahrten am selben Tag fällig werden.",
+  "Die Melodie, wenn man einen Bürostuhl zusammenbaut und die Anleitung nur aus Bildern besteht.",
+  "Das spiele ich ab, wenn der Kollege den letzten Kaffee nimmt und keinen neuen aufsetzt.",
+  "Der Song, wenn der Meetingraum belegt ist und alle im Flur warten.",
+  "Wie sich der Moment anfühlt, wenn eine Mail mit „wie besprochen“ beginnt und nichts besprochen wurde.",
+  "Das läuft, wenn man freitags in den Kalender schaut und er tatsächlich leer ist.",
+  "Der Vibe, wenn der Urlaubsantrag genehmigt wird.",
+  "Die Musik, wenn man das Handy aus der Tasche zieht und der Bildschirm dunkel bleibt.",
+  "Das spiele ich ab, wenn die Kopfhörer sich in der Tasche von selbst verknotet haben.",
+  "Der Soundtrack, wenn der Akku exakt bis nach Hause reicht.",
+  "Die Melodie, wenn man im Supermarkt dreimal an derselben Person vorbeischiebt.",
+  "Das läuft, wenn man die Treppe nimmt, weil der Aufzug schon jemanden drin hat.",
+  "Der Song für den Moment, wenn das Pfandautomat-Display „Voll“ anzeigt.",
+  "Wie es sich anfühlt, wenn man die Frischhaltefolie ohne Verknoten abreißt.",
+  "Der Vibe, wenn die Tupperdose und ihr Deckel zusammenfinden.",
+];
+/* 18+: wird nur gespielt, wenn ausdrücklich zugeschaltet. */
+const CARDS_18 = [];
 const WORD_TIMER_STEPS = [0, 15, 30, 60];
 let wordState = { used: [], current: null, round: 0, timer: null, remaining: 0 };
 
 /* Eigene Inhalte des Nutzers – liegen getrennt von den mitgelieferten Listen,
    damit ein Update der App sie niemals überschreibt. */
-const OWN = { words: 'hitrater_own_words', cards: 'hitrater_own_cards' };
+const OWN = { words: 'hitrater_own_words', cards: 'hitrater_own_cards', cards18: 'hitrater_own_cards18' };
 function ownWords() { return store.get(OWN.words, []) || []; }
 function ownCards() { return store.get(OWN.cards, []) || []; }
+function ownCards18() { return store.get(OWN.cards18, []) || []; }
+/* Kartenpool: Basis-Set plus eigene Karten; 18+ nur auf ausdrücklichen Wunsch */
+function cardPool() {
+  let list = CARDS_BASE.concat(ownCards());
+  if (settings.cards18) list = list.concat(CARDS_18, ownCards18());
+  return list.filter((v, i, a) => a.indexOf(v) === i);
+}
 function parseLines(raw) {
   return raw.split('\n').map(s => s.trim()).filter(Boolean)
     .filter((v, i, a) => a.indexOf(v) === i);      // Dubletten raus
@@ -2834,14 +3022,20 @@ $('btn-newer').onclick = () => guessHighLow(true);
 $('btn-refix').onclick = refixAllPacks;
 /* ---- Eigene Inhalte verwalten ---- */
 function renderOwnContent() {
-  const w = ownWords(), c = ownCards();
+  const w = ownWords(), c = ownCards(), c18 = ownCards18();
   if (!$('inp-own-words').value) $('inp-own-words').value = w.join('\n');
   if (!$('inp-own-cards').value) $('inp-own-cards').value = c.join('\n');
+  if (!$('inp-own-cards18').value) $('inp-own-cards18').value = c18.join('\n');
   $('words-status').textContent = w.length ? `${w.length} eigene Wörter gespeichert.` : 'Noch keine eigenen Wörter.';
-  $('cards-status').textContent = c.length ? `${c.length} eigene Karten gespeichert.` : 'Noch keine eigenen Karten.';
+  $('cards-status').textContent =
+    `${CARDS_BASE.length} Karten mitgeliefert` + (c.length ? `, ${c.length} eigene dazu.` : '.');
+  $('cards18-status').textContent = c18.length
+    ? `${c18.length} eigene 18+-Karten gespeichert.` : 'Noch keine 18+-Karten.';
   $('chip-ownwords-only').classList.toggle('on', !!settings.ownWordsOnly);
   $('chip-ownwords-only').textContent = settings.ownWordsOnly
     ? 'Nur eigene Wörter' : 'Eigene + mitgelieferte';
+  $('chip-cards18').classList.toggle('on', !!settings.cards18);
+  $('chip-cards18').textContent = settings.cards18 ? '18+ ist aktiv' : '18+ dazunehmen';
 }
 $('btn-save-words').onclick = () => {
   const list = parseLines($('inp-own-words').value);
@@ -2856,13 +3050,23 @@ $('btn-save-cards').onclick = () => {
   renderOwnContent();
   $('cards-status').textContent = `✅ ${list.length} eigene Karten gespeichert.`;
 };
+$('btn-save-cards18').onclick = () => {
+  const list = parseLines($('inp-own-cards18').value);
+  store.set(OWN.cards18, list);
+  renderOwnContent();
+  $('cards18-status').textContent = `✅ ${list.length} 18+-Karten gespeichert.`;
+};
+$('chip-cards18').onclick = () => {
+  settings.cards18 = !settings.cards18;
+  saveSettings(); renderOwnContent();
+};
 $('chip-ownwords-only').onclick = () => {
   settings.ownWordsOnly = !settings.ownWordsOnly;
   saveSettings(); renderOwnContent();
   wordState.used = [];
 };
 $('btn-export-content').onclick = () => {
-  const data = { words: ownWords(), cards: ownCards() };
+  const data = { words: ownWords(), cards: ownCards(), cards18: ownCards18() };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
