@@ -801,6 +801,10 @@ https://open.spotify.com/playlist/…"></textarea>
       <button class="btn btn-purple" id="btn-save-words">Wörter speichern</button>
       <div id="words-status" class="body-sm" style="margin-top:8px"></div>
 
+      <h2 class="h2" style="margin-top:20px">➕ Mitgelieferte Sätze ergänzen</h2>
+      <p class="body-sm">Eigene Zeilen zu den fertigen Kategorien. Sie liegen getrennt vom Code und überstehen jedes Update.</p>
+      <div id="builtin-extras" style="margin-top:12px"></div>
+
       <h2 class="h2" style="margin-top:20px">🃏 Eigene Kartenkategorien</h2>
       <p class="body-sm">Lege beliebig viele eigene Sätze an – etwa „Tiere", „Büro" oder „Urlaub". Jeder erscheint unten als eigener Schalter.</p>
       <div id="own-sets"></div>
@@ -1030,7 +1034,7 @@ const SCOPES = [
 ].join(' ');
 /* Sichtbare Version: So lässt sich prüfen, ob ein Gast noch eine alte,
    zwischengespeicherte Fassung der Seite geladen hat. */
-const APP_VERSION = '2026-08-16-c';
+const APP_VERSION = '2026-08-16-d';
 const REDIRECT_URI = location.origin + location.pathname;
 const LEN_STEPS = [15, 30, 45, 0];          // 0 = ganzer Song
 const RING_C = 2 * Math.PI * 46;   // muss zum r-Wert im SVG passen
@@ -2298,9 +2302,26 @@ const BUILTIN_SETS = [
     desc: 'Sex, Fetisch, sehr direkte Situationen. Nur für Erwachsene.',
     get: () => CARDS_SPICY, adult: true },
 ];
-/* Mitgelieferte plus selbst angelegte Kategorien */
+/* Eigene Ergänzungen zu den mitgelieferten Sätzen. Sie liegen getrennt vom
+   Code, damit ein Update der App sie nicht überschreibt. */
+function setExtras() { return store.get('hitrater_set_extras', {}) || {}; }
+function setExtrasFor(id) { return setExtras()[id] || []; }
+function saveSetExtras(id, list) {
+  const all = setExtras();
+  if (list.length) all[id] = list; else delete all[id];
+  store.set('hitrater_set_extras', all);
+}
+/* Mitgelieferte (inklusive Ergänzungen) plus selbst angelegte Kategorien */
 function allCardSets() {
-  return BUILTIN_SETS.concat(ownSets().map(s => ({
+  const builtin = BUILTIN_SETS.map(s => {
+    const extra = setExtrasFor(s.id);
+    return {
+      ...s,
+      desc: s.desc + (extra.length ? ` · ${extra.length} eigene ergänzt` : ''),
+      get: () => s.get().concat(extra),
+    };
+  });
+  return builtin.concat(ownSets().map(s => ({
     id: s.id,
     label: (s.adult ? '🔞 ' : '✏️ ') + (s.name || 'Ohne Namen'),
     desc: s.adult ? 'Deine eigene Kategorie – ab 18.' : 'Deine eigene Kategorie.',
@@ -3855,6 +3876,33 @@ $('btn-older').onclick = () => guessHighLow(false);
 $('btn-newer').onclick = () => guessHighLow(true);
 $('btn-refix').onclick = refixAllPacks;
 /* ---- Eigene Inhalte verwalten ---- */
+/* Ergänzungsfelder für die fertigen Kategorien */
+function renderBuiltinExtras() {
+  const box = $('builtin-extras');
+  box.innerHTML = BUILTIN_SETS.map(s => `
+    <div class="own-set" data-id="${s.id}">
+      <div class="own-set-head">
+        <span class="l" style="flex:1;font-family:var(--font-heading);font-weight:700;font-size:.95rem"></span>
+        <span class="body-sm base-count"></span>
+      </div>
+      <textarea class="extra-cards" rows="3" placeholder="Eigene Zeilen für diesen Satz …"></textarea>
+      <div class="own-set-foot"><span class="body-sm extra-count"></span></div>
+    </div>`).join('');
+  box.querySelectorAll('.own-set').forEach((el, i) => {
+    const s = BUILTIN_SETS[i];
+    const extra = setExtrasFor(s.id);
+    el.querySelector('.l').textContent = s.label;
+    el.querySelector('.base-count').textContent = `${s.get().length} fest`;
+    el.querySelector('.extra-cards').value = extra.join('\n');
+    el.querySelector('.extra-count').textContent = extra.length ? `+ ${extra.length} von dir` : 'keine Ergänzungen';
+    el.querySelector('.extra-cards').onchange = (ev) => {
+      const list = parseLines(ev.target.value);
+      saveSetExtras(s.id, list);
+      el.querySelector('.extra-count').textContent = list.length ? `+ ${list.length} von dir` : 'keine Ergänzungen';
+      renderCardSets();
+    };
+  });
+}
 function renderOwnSets() {
   const sets = ownSets();
   const box = $('own-sets');
@@ -3911,6 +3959,7 @@ function renderOwnContent() {
   const w = ownWords();
   if (!$('inp-own-words').value) $('inp-own-words').value = w.join('\n');
   $('words-status').textContent = w.length ? `${w.length} eigene Wörter gespeichert.` : 'Noch keine eigenen Wörter.';
+  renderBuiltinExtras();
   renderOwnSets();
   $('chip-ownwords-only').classList.toggle('on', !!settings.ownWordsOnly);
   $('chip-ownwords-only').textContent = settings.ownWordsOnly
@@ -3977,12 +4026,15 @@ async function cloudSave() {
     const payload = {
       words: ownWords(),
       sets: ownSets(),
+      extras: setExtras(),                 // Ergänzungen zu den festen Sätzen
       savedAt: SV_TIMESTAMP(),
       device: navigator.userAgent.slice(0, 60),
     };
     await fb.db.ref('library/content').set(payload);
     const count = ownSets().reduce((n, s) => n + (s.cards || []).length, 0);
-    cloudStatus(`✅ Gesichert: ${ownWords().length} Wörter, ${ownSets().length} Kategorien, ${count} Karten.`);
+    const extraCount = Object.values(setExtras()).reduce((n, l) => n + l.length, 0);
+    cloudStatus(`✅ Gesichert: ${ownWords().length} Wörter, ${ownSets().length} Kategorien, ` +
+                `${count} Karten, ${extraCount} Ergänzungen.`);
   } catch (e) {
     cloudStatus('❌ ' + e.message + (String(e.message).toLowerCase().includes('permission')
       ? ' – sind die aktuellen Firebase-Regeln veröffentlicht?' : ''));
@@ -3997,14 +4049,18 @@ async function cloudLoad() {
     if (!data) { cloudStatus('Dort liegt noch nichts – erst einmal sichern.'); return; }
     const words = data.words || [];
     const sets = data.sets || [];
+    const extras = data.extras || {};
     const count = sets.reduce((n, s) => n + (s.cards || []).length, 0);
+    const extraCount = Object.values(extras).reduce((n, l) => n + (l || []).length, 0);
     const when = data.savedAt ? new Date(data.savedAt).toLocaleString('de-DE') : 'unbekannt';
-    if (!confirm(`Sicherung vom ${when}:\n${words.length} Wörter, ${sets.length} Kategorien, ${count} Karten.\n\n` +
+    if (!confirm(`Sicherung vom ${when}:\n${words.length} Wörter, ${sets.length} Kategorien, ` +
+                 `${count} Karten, ${extraCount} Ergänzungen.\n\n` +
                  'Damit werden die Inhalte auf diesem Gerät ersetzt. Fortfahren?')) {
       cloudStatus('Abgebrochen.');
       return;
     }
     store.set(OWN.words, words);
+    store.set('hitrater_set_extras', extras);
     saveOwnSets(sets);
     // Sätze, die es nicht mehr gibt, aus der Auswahl nehmen
     const known = new Set(allCardSets().map(s => s.id));
@@ -4021,7 +4077,7 @@ async function cloudLoad() {
 $('btn-cloud-save').onclick = cloudSave;
 $('btn-cloud-load').onclick = cloudLoad;
 $('btn-export-content').onclick = () => {
-  const data = { words: ownWords(), sets: ownSets() };
+  const data = { words: ownWords(), sets: ownSets(), extras: setExtras() };
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
